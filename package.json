@@ -1,0 +1,43 @@
+{
+  "name": "hiarky",
+  "version": "0.1.0",
+  "description": "Track React component hierarchy, props, and hooks over time through snapshots",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "hiarky": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "react",
+    "cli",
+    "snapshot",
+    "component-tree",
+    "visualization"
+  ],
+  "dependencies": {
+    "@babel/parser": "^7.25.0",
+    "@babel/traverse": "^7.25.0",
+    "@babel/types": "^7.25.0",
+    "commander": "^12.1.0",
+    "fast-glob": "^3.3.2",
+    "js-yaml": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/babel__traverse": "^7.20.6",
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}
