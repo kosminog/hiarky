@@ -64,6 +64,8 @@ export interface Snapshot {
   components: ComponentInfo[];
   /** Component ids never rendered by another project component */
   roots: string[];
+  /** sha256 of components + roots, used to skip identical snapshots */
+  contentHash?: string;
   /** Files that could not be parsed */
   errors?: { file: string; message: string }[];
 }
