@@ -53,7 +53,11 @@ program
   .description('Watch source files and snapshot automatically on change (deduped)')
   .option('--debounce <ms>', 'settle time after the last change', (v) => parseInt(v, 10), 1500)
   .action(async (opts: { debounce: number }) => {
-    await watchProject(requireProjectRoot(), opts);
+    const handle = await watchProject(requireProjectRoot(), opts);
+    process.on('SIGINT', () => {
+      console.log('\nStopping watch.');
+      void handle.close().then(() => process.exit(0));
+    });
   });
 
 program

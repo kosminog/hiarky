@@ -29,24 +29,43 @@ function isSourceFile(file: string): boolean {
   return true;
 }
 
-export async function watchProject(root: string, opts: { debounce: number }): Promise<void> {
-  const stamp = () => new Date().toTimeString().slice(0, 8);
+export interface WatchOptions {
+  debounce: number;
+  /** Called after every snapshot attempt (the baseline included) with whether one was written. */
+  onSnapshot?: (written: boolean) => void;
+  quiet?: boolean;
+}
 
-  // Baseline snapshot (deduped, so a no-op if nothing changed since the last one)
-  await snapProject(root, { quiet: true });
+export interface WatchHandle {
+  close(): Promise<void>;
+}
+
+/**
+ * Watch a project and snapshot on change. Resolves once watching is active;
+ * the returned handle stops the watcher. The chokidar watcher keeps the
+ * process alive, so the CLI needs no extra keep-alive.
+ */
+export async function watchProject(root: string, opts: WatchOptions): Promise<WatchHandle> {
+  const stamp = () => new Date().toTimeString().slice(0, 8);
+  const log = (msg: string) => {
+    if (!opts.quiet) console.log(msg);
+  };
 
   let timer: NodeJS.Timeout | null = null;
   let running = false;
   let rerun = false;
+  let closed = false;
 
   const takeSnapshot = async () => {
+    if (closed) return;
     if (running) {
       rerun = true;
       return;
     }
     running = true;
     try {
-      await snapProject(root, { quiet: true });
+      const written = await snapProject(root, { quiet: true });
+      opts.onSnapshot?.(written);
     } catch (err) {
       console.error(`[${stamp()}] snapshot failed: ${err instanceof Error ? err.message : err}`);
     }
@@ -57,8 +76,11 @@ export async function watchProject(root: string, opts: { debounce: number }): Pr
     }
   };
 
+  // Baseline snapshot (deduped, so a no-op if nothing changed since the last one)
+  await takeSnapshot();
+
   const schedule = (file: string) => {
-    console.log(`[${stamp()}] change: ${path.relative(root, file)}`);
+    log(`[${stamp()}] change: ${path.relative(root, file)}`);
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => void takeSnapshot(), opts.debounce);
   };
@@ -74,13 +96,14 @@ export async function watchProject(root: string, opts: { debounce: number }): Pr
     schedule(file);
   });
 
-  console.log(`Watching ${root} (debounce ${opts.debounce}ms). Press Ctrl+C to stop.`);
+  await new Promise<void>((resolve) => watcher.on('ready', () => resolve()));
+  log(`Watching ${root} (debounce ${opts.debounce}ms). Press Ctrl+C to stop.`);
 
-  process.on('SIGINT', () => {
-    console.log('\nStopping watch.');
-    void watcher.close().then(() => process.exit(0));
-  });
-
-  // Keep the process alive until SIGINT
-  await new Promise(() => {});
+  return {
+    close: async () => {
+      closed = true;
+      if (timer) clearTimeout(timer);
+      await watcher.close();
+    },
+  };
 }

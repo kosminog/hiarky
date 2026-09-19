@@ -1,4 +1,4 @@
-import { ComponentInfo, Snapshot } from './types';
+import { Snapshot } from './types';
 
 export interface SnapshotDiff {
   added: string[];
@@ -6,18 +6,19 @@ export interface SnapshotDiff {
   changed: string[];
 }
 
-function byId(s: Snapshot): Map<string, ComponentInfo> {
-  return new Map(s.components.map((c) => [c.id, c]));
-}
-
-/** Same change signature the viewer uses: props, hooks, and rendered names. */
-function sig(c: ComponentInfo): string {
-  return JSON.stringify([c.props, c.hooks, c.renders.map((r) => r.name).sort()]);
-}
-
+/**
+ * Diff two snapshots by component id, flagging changes to props, hooks, or
+ * rendered children (order-insensitive).
+ *
+ * IMPORTANT: this function must stay fully self-contained (no references to
+ * imports or other module members) — viewer.ts inlines its source verbatim
+ * into the generated HTML so the CLI and the viewer can never disagree.
+ */
 export function diffSnapshots(prev: Snapshot, next: Snapshot): SnapshotDiff {
-  const a = byId(prev);
-  const b = byId(next);
+  const sig = (c: Snapshot['components'][number]) =>
+    JSON.stringify([c.props, c.hooks, c.renders.map((r) => r.name).sort()]);
+  const a = new Map(prev.components.map((c) => [c.id, c]));
+  const b = new Map(next.components.map((c) => [c.id, c]));
   const added: string[] = [];
   const removed: string[] = [];
   const changed: string[] = [];

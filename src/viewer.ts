@@ -1,3 +1,4 @@
+import { diffSnapshots } from './diff';
 import { Snapshot } from './types';
 
 /**
@@ -142,21 +143,13 @@ const byId = (snap) => {
   return m;
 };
 
-function sig(c) {
-  return JSON.stringify([c.props, c.hooks, c.renders.map(r => r.name).sort()]);
-}
+// Inlined from src/diff.ts at generation time — single source of truth
+const diffSnapshots = ${diffSnapshots.toString()};
 
 function diffWithPrev(i) {
-  const cur = byId(SNAPSHOTS[i]);
-  const added = new Set(), removed = [], changed = new Set();
-  if (i === 0) return { added, removed, changed };
-  const prev = byId(SNAPSHOTS[i - 1]);
-  for (const [id, c] of cur) {
-    if (!prev.has(id)) added.add(id);
-    else if (sig(prev.get(id)) !== sig(c)) changed.add(id);
-  }
-  for (const id of prev.keys()) if (!cur.has(id)) removed.push(id);
-  return { added, removed, changed };
+  if (i === 0) return { added: new Set(), removed: [], changed: new Set() };
+  const d = diffSnapshots(SNAPSHOTS[i - 1], SNAPSHOTS[i]);
+  return { added: new Set(d.added), removed: d.removed, changed: new Set(d.changed) };
 }
 
 function fmtTime(iso) {
@@ -201,7 +194,7 @@ function renderTimeline() {
     }, el('div', { class: 'snap-time' }, fmtTime(s.timestamp)), meta));
   });
   const active = nav.querySelector('.active');
-  if (active) active.scrollIntoView({ block: 'nearest' });
+  if (active && active.scrollIntoView) active.scrollIntoView({ block: 'nearest' });
 }
 
 function renderNode(comp, map, diff, path) {

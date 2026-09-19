@@ -1,32 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { diffSnapshots } from '../src/diff';
-import { ComponentInfo, Snapshot } from '../src/types';
-
-function makeComponent(over: Partial<ComponentInfo> & { id: string }): ComponentInfo {
-  return {
-    name: over.id.split('#')[1],
-    file: over.id.split('#')[0],
-    kind: 'function',
-    export: 'named',
-    props: [],
-    hooks: [],
-    renders: [],
-    ...over,
-  };
-}
-
-function makeSnapshot(components: ComponentInfo[]): Snapshot {
-  return {
-    hiarky: 1,
-    id: 'test',
-    timestamp: '2026-01-01T00:00:00.000Z',
-    project: { root: '/x', name: 'x' },
-    git: null,
-    stats: { files: 1, components: components.length },
-    components,
-    roots: [],
-  };
-}
+import { makeComponent, makeSnapshot } from './helpers';
 
 const a = makeComponent({ id: 'src/A.tsx#A', props: ['x'] });
 const b = makeComponent({ id: 'src/B.tsx#B', hooks: [{ name: 'useState', detail: 's' }] });
