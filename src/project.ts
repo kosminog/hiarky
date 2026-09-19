@@ -3,6 +3,13 @@ import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { GitInfo } from './types';
 
+/** findProjectRoot, but throws when no project is found (CLI entry points). */
+export function requireProjectRoot(from: string = process.cwd()): string {
+  const root = findProjectRoot(from);
+  if (!root) throw new Error('no package.json found in this directory or any parent.');
+  return root;
+}
+
 /** Walk up from cwd to the nearest directory containing package.json. */
 export function findProjectRoot(from: string): string | null {
   let dir = path.resolve(from);

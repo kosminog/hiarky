@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { parse, ParserPlugin } from '@babel/parser';
+import { parse, ParseResult, ParserPlugin } from '@babel/parser';
 import traverse, { NodePath } from '@babel/traverse';
 import * as t from '@babel/types';
 import {
@@ -114,13 +114,19 @@ interface FnCandidate {
  */
 export function analyzeFile(absFile: string, relFile: string): FileAnalysis {
   const source = fs.readFileSync(absFile, 'utf8');
-  let ast: t.File;
+  let ast: ParseResult<t.File>;
+  let parseError: string | undefined;
   try {
     ast = parse(source, {
       sourceType: 'unambiguous',
       plugins: parserPluginsFor(absFile),
       errorRecovery: true,
     });
+    // errorRecovery collects most syntax errors instead of throwing; record the
+    // first one so broken files are flagged while still analyzing what parsed.
+    if (ast.errors && ast.errors.length > 0) {
+      parseError = String((ast.errors[0] as { message?: string }).message ?? ast.errors[0]);
+    }
   } catch (err) {
     return {
       file: relFile,
@@ -368,5 +374,5 @@ export function analyzeFile(absFile: string, relFile: string): FileAnalysis {
     });
   }
 
-  return { file: relFile, components, imports };
+  return { file: relFile, components, imports, ...(parseError ? { parseError } : {}) };
 }

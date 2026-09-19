@@ -70,11 +70,11 @@ export function snapshotHash(s: Snapshot): string {
 
 export function buildSnapshot(
   analysis: ProjectAnalysis,
-  opts: { root: string; name: string; git: GitInfo | null; timestamp: Date }
+  opts: { root: string; name: string; git: GitInfo | null; timestamp: Date; id?: string }
 ): Snapshot {
   return {
     hiarky: 1,
-    id: randomUUID(),
+    id: opts.id ?? randomUUID(),
     timestamp: opts.timestamp.toISOString(),
     project: { root: opts.root, name: opts.name },
     git: opts.git,
@@ -130,18 +130,7 @@ export interface SnapOptions {
   quiet?: boolean;
 }
 
-/** Take a snapshot of the project containing cwd. Returns true if one was written. */
-export async function runSnap(opts: SnapOptions = {}): Promise<boolean> {
-  const root = findProjectRoot(process.cwd());
-  if (!root) {
-    console.error('hiarky: no package.json found in this directory or any parent.');
-    process.exitCode = 1;
-    return false;
-  }
-  return snapProject(root, opts);
-}
-
-/** Snapshot a known project root (shared by snap, watch, and the git hook). */
+/** Snapshot a project root. Returns true if a snapshot was written. */
 export async function snapProject(root: string, opts: SnapOptions = {}): Promise<boolean> {
   const log = (msg: string) => {
     if (!opts.quiet) console.log(msg);

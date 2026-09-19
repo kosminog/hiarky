@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
-import { findProjectRoot } from './project';
 
 const MARKER = '# hiarky-hook';
 
@@ -32,29 +31,18 @@ exit 0
 `;
 }
 
-export function runInstallHook(opts: { force?: boolean }): void {
-  const root = findProjectRoot(process.cwd());
-  if (!root) {
-    console.error('hiarky: no package.json found in this directory or any parent.');
-    process.exitCode = 1;
-    return;
-  }
+/** Install the post-commit hook. Returns the hook file path. */
+export function installHook(root: string, opts: { force?: boolean } = {}): string {
   const hookFile = hookFilePath(root);
-  if (!hookFile) {
-    console.error('hiarky: not inside a git repository.');
-    process.exitCode = 1;
-    return;
-  }
+  if (!hookFile) throw new Error('not inside a git repository.');
 
   if (fs.existsSync(hookFile)) {
     const existing = fs.readFileSync(hookFile, 'utf8');
     if (!existing.includes(MARKER) && !opts.force) {
-      console.error(
-        `hiarky: a post-commit hook already exists at ${hookFile}.\n` +
+      throw new Error(
+        `a post-commit hook already exists at ${hookFile}.\n` +
           'Re-run with --force to overwrite it, or add `hiarky snap --quiet` to it manually.'
       );
-      process.exitCode = 1;
-      return;
     }
   }
 
@@ -62,28 +50,23 @@ export function runInstallHook(opts: { force?: boolean }): void {
   fs.writeFileSync(hookFile, hookScript(root), { mode: 0o755 });
   console.log(`Installed post-commit hook: ${hookFile}`);
   console.log(`Every commit in this repository will now snapshot ${root}.`);
+  return hookFile;
 }
 
-export function runUninstallHook(): void {
-  const root = findProjectRoot(process.cwd());
-  if (!root) {
-    console.error('hiarky: no package.json found in this directory or any parent.');
-    process.exitCode = 1;
-    return;
-  }
+/** Remove the hiarky post-commit hook. Returns true if one was removed. */
+export function uninstallHook(root: string): boolean {
   const hookFile = hookFilePath(root);
   if (!hookFile || !fs.existsSync(hookFile)) {
     console.log('No post-commit hook installed.');
-    return;
+    return false;
   }
   const existing = fs.readFileSync(hookFile, 'utf8');
   if (!existing.includes(MARKER)) {
-    console.error(
-      `hiarky: the post-commit hook at ${hookFile} was not installed by hiarky; leaving it alone.`
+    throw new Error(
+      `the post-commit hook at ${hookFile} was not installed by hiarky; leaving it alone.`
     );
-    process.exitCode = 1;
-    return;
   }
   fs.unlinkSync(hookFile);
   console.log(`Removed post-commit hook: ${hookFile}`);
+  return true;
 }

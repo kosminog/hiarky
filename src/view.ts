@@ -1,23 +1,14 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
-import { findProjectRoot, readProjectName } from './project';
+import { readProjectName } from './project';
 import { loadSnapshots } from './snap';
 import { buildViewerHtml } from './viewer';
 
-export function runView(options: { open: boolean }): void {
-  const root = findProjectRoot(process.cwd());
-  if (!root) {
-    console.error('hiarky: no package.json found in this directory or any parent.');
-    process.exitCode = 1;
-    return;
-  }
-
+export function viewProject(root: string, options: { open: boolean }): void {
   const snapshots = loadSnapshots(root);
   if (snapshots.length === 0) {
-    console.error('hiarky: no snapshots found. Run `hiarky snap` first.');
-    process.exitCode = 1;
-    return;
+    throw new Error('no snapshots found. Run `hiarky snap` first.');
   }
 
   const html = buildViewerHtml(snapshots, readProjectName(root));

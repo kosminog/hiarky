@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
-import { findProjectRoot, readProjectName } from './project';
+import { readProjectName } from './project';
 import {
   analyzeProject,
   buildSnapshot,
@@ -17,14 +17,17 @@ function git(cwd: string, args: string[]): string {
     .trim();
 }
 
-export async function runBackfill(opts: { max: number; range?: string }): Promise<void> {
-  const root = findProjectRoot(process.cwd());
-  if (!root) {
-    console.error('hiarky: no package.json found in this directory or any parent.');
-    process.exitCode = 1;
-    return;
-  }
+export interface BackfillResult {
+  written: number;
+  skippedExisting: number;
+  skippedSame: number;
+  skippedMissing: number;
+}
 
+export async function backfillProject(
+  root: string,
+  opts: { max: number; range?: string }
+): Promise<BackfillResult> {
   let repoRoot: string;
   let branch: string;
   let commits: string[];
@@ -35,13 +38,19 @@ export async function runBackfill(opts: { max: number; range?: string }): Promis
     const list = git(root, ['rev-list', '--reverse', range]);
     commits = list ? list.split('\n') : [];
   } catch (err) {
-    console.error(`hiarky: not a git repository with commits (${err instanceof Error ? err.message.split('\n')[0] : err}).`);
-    process.exitCode = 1;
-    return;
+    throw new Error(
+      `not a git repository with commits (${err instanceof Error ? err.message.split('\n')[0] : err}).`
+    );
   }
+  const result: BackfillResult = {
+    written: 0,
+    skippedExisting: 0,
+    skippedSame: 0,
+    skippedMissing: 0,
+  };
   if (commits.length === 0) {
     console.log('No commits to backfill.');
-    return;
+    return result;
   }
   if (opts.max > 0 && commits.length > opts.max) {
     commits = commits.slice(-opts.max); // most recent N, still oldest → newest
@@ -60,10 +69,6 @@ export async function runBackfill(opts: { max: number; range?: string }): Promis
   const worktree = fs.mkdtempSync(path.join(os.tmpdir(), 'hiarky-backfill-'));
   console.log(`Backfilling ${commits.length} commit(s) via temporary worktree ...`);
 
-  let written = 0;
-  let skippedExisting = 0;
-  let skippedSame = 0;
-  let skippedMissing = 0;
   let prevHash: string | null = null;
 
   try {
@@ -71,7 +76,7 @@ export async function runBackfill(opts: { max: number; range?: string }): Promis
 
     for (const sha of commits) {
       if (existing.has(sha)) {
-        skippedExisting++;
+        result.skippedExisting++;
         prevHash = existing.get(sha)!;
         continue;
       }
@@ -79,7 +84,7 @@ export async function runBackfill(opts: { max: number; range?: string }): Promis
       git(worktree, ['checkout', '--detach', '--force', '--quiet', sha]);
       const projDir = path.join(worktree, relProject);
       if (!fs.existsSync(path.join(projDir, 'package.json'))) {
-        skippedMissing++;
+        result.skippedMissing++;
         continue;
       }
 
@@ -92,13 +97,13 @@ export async function runBackfill(opts: { max: number; range?: string }): Promis
       });
 
       if (snapshot.contentHash === prevHash) {
-        skippedSame++;
+        result.skippedSame++;
         continue;
       }
       prevHash = snapshot.contentHash!;
 
       writeSnapshot(root, snapshot);
-      written++;
+      result.written++;
       console.log(
         `  ${sha.slice(0, 7)}  ${snapshot.timestamp}  ${snapshot.stats.components} components`
       );
@@ -112,12 +117,13 @@ export async function runBackfill(opts: { max: number; range?: string }): Promis
   }
 
   const skipped: string[] = [];
-  if (skippedExisting) skipped.push(`${skippedExisting} already snapshotted`);
-  if (skippedSame) skipped.push(`${skippedSame} unchanged`);
-  if (skippedMissing) skipped.push(`${skippedMissing} without the project`);
+  if (result.skippedExisting) skipped.push(`${result.skippedExisting} already snapshotted`);
+  if (result.skippedSame) skipped.push(`${result.skippedSame} unchanged`);
+  if (result.skippedMissing) skipped.push(`${result.skippedMissing} without the project`);
   console.log(
-    `Backfill complete: ${written} snapshot(s) written` +
+    `Backfill complete: ${result.written} snapshot(s) written` +
       (skipped.length ? ` (skipped ${skipped.join(', ')})` : '') +
       '.'
   );
+  return result;
 }

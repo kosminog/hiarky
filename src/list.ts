@@ -1,23 +1,21 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { diffSnapshots } from './diff';
-import { findProjectRoot } from './project';
 import { loadSnapshotEntries } from './snap';
 
-export function runList(): void {
-  const root = findProjectRoot(process.cwd());
-  if (!root) {
-    console.error('hiarky: no package.json found in this directory or any parent.');
-    process.exitCode = 1;
-    return;
-  }
-  const entries = loadSnapshotEntries(root);
-  if (entries.length === 0) {
-    console.log('No snapshots yet. Run `hiarky snap` first.');
-    return;
-  }
+export interface ListRow {
+  idx: string;
+  when: string;
+  commit: string;
+  components: string;
+  changes: string;
+  id: string;
+}
 
-  const rows = entries.map((e, i) => {
+/** Table rows for every snapshot, oldest → newest. */
+export function listRows(root: string): ListRow[] {
+  const entries = loadSnapshotEntries(root);
+  return entries.map((e, i) => {
     const s = e.snapshot;
     const when = s.timestamp.replace('T', ' ').slice(0, 19) + 'Z';
     const commit = s.git ? s.git.commit.slice(0, 7) + (s.git.dirty ? '*' : '') : '-';
@@ -39,8 +37,15 @@ export function runList(): void {
       id: s.id.slice(0, 8),
     };
   });
+}
 
-  const cols: Array<[keyof (typeof rows)[0], string]> = [
+export function listProject(root: string): void {
+  const rows = listRows(root);
+  if (rows.length === 0) {
+    console.log('No snapshots yet. Run `hiarky snap` first.');
+    return;
+  }
+  const cols: Array<[keyof ListRow, string]> = [
     ['idx', '#'],
     ['when', 'TIMESTAMP'],
     ['commit', 'COMMIT'],
@@ -57,31 +62,27 @@ export function runList(): void {
   }
 }
 
-export function runPrune(opts: { keep: number; dryRun?: boolean }): void {
-  const root = findProjectRoot(process.cwd());
-  if (!root) {
-    console.error('hiarky: no package.json found in this directory or any parent.');
-    process.exitCode = 1;
-    return;
-  }
+export interface PruneResult {
+  deleted: string[];
+  kept: number;
+}
+
+export function pruneProject(root: string, opts: { keep: number; dryRun?: boolean }): PruneResult {
   if (!Number.isInteger(opts.keep) || opts.keep < 1) {
-    console.error('hiarky: --keep must be a positive integer.');
-    process.exitCode = 1;
-    return;
+    throw new Error('--keep must be a positive integer.');
   }
   const entries = loadSnapshotEntries(root);
   const doomed = entries.slice(0, Math.max(0, entries.length - opts.keep));
   if (doomed.length === 0) {
     console.log(`Nothing to prune (${entries.length} snapshot(s), keeping ${opts.keep}).`);
-    return;
+    return { deleted: [], kept: entries.length };
   }
   for (const e of doomed) {
     if (opts.dryRun) console.log(`Would delete ${path.basename(e.file)}`);
     else fs.unlinkSync(e.file);
   }
   if (!opts.dryRun) {
-    console.log(
-      `Pruned ${doomed.length} snapshot(s); ${entries.length - doomed.length} kept.`
-    );
+    console.log(`Pruned ${doomed.length} snapshot(s); ${entries.length - doomed.length} kept.`);
   }
+  return { deleted: doomed.map((e) => e.file), kept: entries.length - doomed.length };
 }

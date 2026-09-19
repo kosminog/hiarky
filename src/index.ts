@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { runBackfill } from './backfill';
-import { runInstallHook, runUninstallHook } from './hook';
-import { runList, runPrune } from './list';
-import { runSnap } from './snap';
-import { runView } from './view';
-import { runWatch } from './watch';
+import { backfillProject } from './backfill';
+import { installHook, uninstallHook } from './hook';
+import { listProject, pruneProject } from './list';
+import { requireProjectRoot } from './project';
+import { snapProject } from './snap';
+import { viewProject } from './view';
+import { watchProject } from './watch';
 
 const program = new Command();
 
@@ -20,7 +21,7 @@ program
   .option('-f, --force', 'snapshot even if nothing changed since the last one')
   .option('-q, --quiet', 'single-line output (used by hooks and watch mode)')
   .action(async (opts: { force?: boolean; quiet?: boolean }) => {
-    await runSnap(opts);
+    await snapProject(requireProjectRoot(), opts);
   });
 
 program
@@ -28,14 +29,14 @@ program
   .description('Generate an HTML viewer for all snapshots and open it in a browser')
   .option('--no-open', 'generate the file without opening a browser')
   .action((opts: { open: boolean }) => {
-    runView(opts);
+    viewProject(requireProjectRoot(), opts);
   });
 
 program
   .command('list')
   .description('List all snapshots with commit info and changes since the previous one')
   .action(() => {
-    runList();
+    listProject(requireProjectRoot());
   });
 
 program
@@ -44,7 +45,7 @@ program
   .requiredOption('--keep <n>', 'number of snapshots to keep', (v) => parseInt(v, 10))
   .option('--dry-run', 'show what would be deleted without deleting')
   .action((opts: { keep: number; dryRun?: boolean }) => {
-    runPrune(opts);
+    pruneProject(requireProjectRoot(), opts);
   });
 
 program
@@ -52,7 +53,7 @@ program
   .description('Watch source files and snapshot automatically on change (deduped)')
   .option('--debounce <ms>', 'settle time after the last change', (v) => parseInt(v, 10), 1500)
   .action(async (opts: { debounce: number }) => {
-    await runWatch(opts);
+    await watchProject(requireProjectRoot(), opts);
   });
 
 program
@@ -60,14 +61,14 @@ program
   .description('Install a git post-commit hook that snapshots this project on every commit')
   .option('-f, --force', 'overwrite an existing post-commit hook')
   .action((opts: { force?: boolean }) => {
-    runInstallHook(opts);
+    installHook(requireProjectRoot(), opts);
   });
 
 program
   .command('uninstall-hook')
   .description('Remove the git post-commit hook installed by hiarky')
   .action(() => {
-    runUninstallHook();
+    uninstallHook(requireProjectRoot());
   });
 
 program
@@ -76,7 +77,7 @@ program
   .option('--max <n>', 'limit to the most recent N commits', (v) => parseInt(v, 10), 100)
   .option('--range <range>', 'git rev range to backfill (default: HEAD history)')
   .action(async (opts: { max: number; range?: string }) => {
-    await runBackfill(opts);
+    await backfillProject(requireProjectRoot(), opts);
   });
 
 program.parseAsync().catch((err) => {

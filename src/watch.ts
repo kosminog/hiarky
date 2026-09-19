@@ -1,6 +1,5 @@
 import * as path from 'path';
 import chokidar from 'chokidar';
-import { findProjectRoot } from './project';
 import { snapProject } from './snap';
 
 const SOURCE_EXTS = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs']);
@@ -30,14 +29,7 @@ function isSourceFile(file: string): boolean {
   return true;
 }
 
-export async function runWatch(opts: { debounce: number }): Promise<void> {
-  const root = findProjectRoot(process.cwd());
-  if (!root) {
-    console.error('hiarky: no package.json found in this directory or any parent.');
-    process.exitCode = 1;
-    return;
-  }
-
+export async function watchProject(root: string, opts: { debounce: number }): Promise<void> {
   const stamp = () => new Date().toTimeString().slice(0, 8);
 
   // Baseline snapshot (deduped, so a no-op if nothing changed since the last one)

@@ -10,6 +10,7 @@ Track your React project's component hierarchy, props, and hooks over time throu
 npm install
 npm run build
 npm link   # makes the `hiarky` command available globally
+npm test   # run the vitest suite (analyzer, hierarchy linking, diffing)
 ```
 
 ## Usage
