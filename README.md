@@ -1,5 +1,8 @@
 # hiarky
 
+[![CI](https://github.com/kosminog/hiarky/actions/workflows/ci.yml/badge.svg)](https://github.com/kosminog/hiarky/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/hiarky.svg)](https://www.npmjs.com/package/hiarky)
+
 Track what your project declares — components, routes, API procedures, database models, migrations, config — and how it changes over time.
 
 `hiarky snap` statically analyzes your project and records every module-scope symbol, with its dependencies, as a YAML snapshot in `.hiarky/snapshots/`. `hiarky view` generates a self-contained HTML viewer to browse and compare snapshots across time (and commits).
@@ -254,6 +257,10 @@ npm test   # vitest suite: analyzer, linking, diffing, CLI, git, watch, viewer
 ```
 
 `npm run dev` rebuilds on change; `npm run typecheck` type-checks without emitting.
+
+CI runs the suite on Node 22 and 24, then installs the packed tarball on Node 18, 20, 22,
+and 24 and drives the CLI, so the supported-Node claim stays tested. Releases publish from
+a `v*` tag with npm provenance. Notable changes are recorded in [CHANGELOG.md](CHANGELOG.md).
 
 ## Roadmap
 
