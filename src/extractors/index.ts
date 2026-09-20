@@ -2,6 +2,7 @@ import { FileAnalysis } from '../types';
 import { analyzeConfig, CONFIG_GLOBS, matchesConfig } from './config';
 import { analyzeJavascript, JAVASCRIPT_GLOBS, matchesJavascript } from './javascript';
 import { analyzePrisma, matchesPrisma, PRISMA_GLOBS } from './prisma';
+import { analyzePython, analyzePythonMany, matchesPython, PYTHON_GLOBS } from './python';
 import { analyzeSql, matchesSql, SQL_GLOBS } from './sql';
 
 /**
@@ -17,6 +18,12 @@ export interface Extractor {
   /** Does this extractor handle the given file path? */
   matches(file: string): boolean;
   analyze(absFile: string, relFile: string): FileAnalysis;
+  /**
+   * Optional batch entry point, in file order. Extractors that pay a fixed
+   * cost per invocation (spawning an interpreter, say) implement this so a
+   * scan pays it once instead of once per file.
+   */
+  analyzeMany?(files: Array<{ abs: string; rel: string }>): FileAnalysis[];
 }
 
 export const javascriptExtractor: Extractor = {
@@ -40,6 +47,14 @@ export const sqlExtractor: Extractor = {
   analyze: analyzeSql,
 };
 
+export const pythonExtractor: Extractor = {
+  name: 'python',
+  globs: PYTHON_GLOBS,
+  matches: matchesPython,
+  analyze: analyzePython,
+  analyzeMany: analyzePythonMany,
+};
+
 export const configExtractor: Extractor = {
   name: 'config',
   globs: CONFIG_GLOBS,
@@ -50,6 +65,7 @@ export const configExtractor: Extractor = {
 /** Registered extractors, in match order. */
 export const extractors: Extractor[] = [
   javascriptExtractor,
+  pythonExtractor,
   prismaExtractor,
   sqlExtractor,
   configExtractor,

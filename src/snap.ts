@@ -3,8 +3,7 @@ import * as path from 'path';
 import { createHash, randomUUID } from 'crypto';
 import fg from 'fast-glob';
 import * as yaml from 'js-yaml';
-import { analyzeFile } from './analyze';
-import { extractorGlobs } from './extractors';
+import { Extractor, extractorFor, extractorGlobs } from './extractors';
 import { loadResolverContext } from './modules';
 import { findProjectRoot, listGitFiles, readGitInfo, readProjectName } from './project';
 import { linkSymbols } from './resolve';
@@ -66,11 +65,28 @@ export async function analyzeProject(root: string): Promise<ProjectAnalysis> {
   const gitFiles = listGitFiles(root);
   const files = (gitFiles ? globbed.filter((f) => gitFiles.has(f)) : globbed).sort();
 
+  // Group by extractor so batch-capable ones (Python spawns an interpreter)
+  // are invoked once rather than once per file.
+  const groups = new Map<Extractor, Array<{ abs: string; rel: string }>>();
+  for (const rel of files) {
+    const extractor = extractorFor(rel);
+    if (!extractor) continue;
+    const group = groups.get(extractor) ?? [];
+    group.push({ abs: path.join(root, rel), rel });
+    groups.set(extractor, group);
+  }
+
+  const results: FileAnalysis[] = [];
+  for (const [extractor, group] of groups) {
+    if (extractor.analyzeMany) results.push(...extractor.analyzeMany(group));
+    else for (const f of group) results.push(extractor.analyze(f.abs, f.rel));
+  }
+  results.sort((a, b) => a.file.localeCompare(b.file));
+
   const analyses: FileAnalysis[] = [];
   const errors: { file: string; message: string }[] = [];
-  for (const rel of files) {
-    const analysis = analyzeFile(path.join(root, rel), rel);
-    if (analysis.parseError) errors.push({ file: rel, message: analysis.parseError });
+  for (const analysis of results) {
+    if (analysis.parseError) errors.push({ file: analysis.file, message: analysis.parseError });
     if (analysis.symbols.length > 0 || analysis.reexports.length > 0) analyses.push(analysis);
   }
 

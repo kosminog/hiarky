@@ -2,7 +2,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import fg from 'fast-glob';
 
-const EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.cjs'];
+const EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.cjs', '.py'];
+/** Files that stand in for a directory when a specifier points at one. */
+const INDEX_FILES = ['index', '__init__'];
 
 /** One `paths` entry, pre-split around its single wildcard. */
 interface PathMapping {
@@ -33,6 +35,8 @@ export interface ResolverContext {
   /** tsconfigs by directory, longest path first so the nearest one wins */
   tsconfigs: TsConfig[];
   packages: WorkspacePackage[];
+  /** Directories holding a pyproject.toml / setup.py, longest path first */
+  pythonRoots: string[];
 }
 
 /**
@@ -198,6 +202,18 @@ function loadPackages(root: string): WorkspacePackage[] {
  * Without this a monorepo's internal imports ("~/components/ui/button",
  * "@acme/web/thing") all look like third-party packages and the graph falls apart.
  */
+/** Directories that anchor absolute Python imports (`from src.model import X`). */
+function loadPythonRoots(root: string): string[] {
+  const markers = fg.sync(['**/pyproject.toml', '**/setup.py', '**/setup.cfg'], {
+    cwd: root,
+    absolute: true,
+    ignore: ['**/node_modules/**', '**/.venv/**', '**/venv/**'],
+  });
+  const dirs = new Set(markers.map((m) => path.dirname(m)));
+  dirs.add(root);
+  return [...dirs].sort((a, b) => b.length - a.length);
+}
+
 export function loadResolverContext(root: string): ResolverContext {
   const configFiles = fg.sync(['**/tsconfig*.json', '**/jsconfig.json'], {
     cwd: root,
@@ -211,7 +227,12 @@ export function loadResolverContext(root: string): ResolverContext {
   }
   // Nearest config wins: deepest directory first
   tsconfigs.sort((a, b) => b.dir.length - a.dir.length);
-  return { root, tsconfigs, packages: loadPackages(root) };
+  return {
+    root,
+    tsconfigs,
+    packages: loadPackages(root),
+    pythonRoots: loadPythonRoots(root),
+  };
 }
 
 /** Does this absolute path (possibly extensionless) point at a source file? */
@@ -219,7 +240,7 @@ function existingFile(base: string): string | null {
   const tries = [
     base,
     ...EXTENSIONS.map((e) => base + e),
-    ...EXTENSIONS.map((e) => path.join(base, 'index' + e)),
+    ...INDEX_FILES.flatMap((index) => EXTENSIONS.map((e) => path.join(base, index + e))),
   ];
   for (const p of tries) {
     if (fs.existsSync(p) && fs.statSync(p).isFile()) return p;
@@ -245,10 +266,20 @@ function configFor(ctx: ResolverContext, fromFile: string): TsConfig | undefined
  * Tries, in order: relative paths, tsconfig `paths` aliases, tsconfig baseUrl,
  * then workspace package names.
  */
+export interface ResolveOptions {
+  /**
+   * Also try the specifier as a path from the enclosing package root. Python
+   * absolute imports (`from src.model import X`) work this way; a bare JS
+   * specifier is a package name and must not be resolved like this.
+   */
+  packageRelative?: boolean;
+}
+
 export function resolveSpecifier(
   ctx: ResolverContext,
   fromFile: string,
-  source: string
+  source: string,
+  opts: ResolveOptions = {}
 ): string | null {
   if (source.startsWith('.')) {
     const abs = existingFile(path.resolve(ctx.root, path.dirname(fromFile), source));
@@ -268,6 +299,18 @@ export function resolveSpecifier(
     }
     if (cfg.baseUrl) {
       const abs = existingFile(path.resolve(cfg.baseUrl, source));
+      const rel = abs && inProject(ctx.root, abs);
+      if (rel) return rel;
+    }
+  }
+
+  if (opts.packageRelative) {
+    const fromDir = path.resolve(ctx.root, path.dirname(fromFile));
+    const anchors = ctx.pythonRoots.filter(
+      (dir) => fromDir === dir || fromDir.startsWith(dir + path.sep)
+    );
+    for (const anchor of anchors) {
+      const abs = existingFile(path.join(anchor, source));
       const rel = abs && inProject(ctx.root, abs);
       if (rel) return rel;
     }

@@ -1,7 +1,17 @@
-import { loadResolverContext, ResolverContext, resolveSpecifier } from './modules';
+import {
+  loadResolverContext,
+  ResolveOptions,
+  ResolverContext,
+  resolveSpecifier,
+} from './modules';
 import { FileAnalysis, isRenderable, SymbolInfo } from './types';
 
 const MAX_BARREL_DEPTH = 8;
+
+/** Python resolves bare module paths against its package root; JS does not. */
+function resolveOptionsFor(file: string): ResolveOptions {
+  return file.endsWith('.py') ? { packageRelative: true } : {};
+}
 
 /**
  * Where a module's exported name ends up: a project symbol, or a module
@@ -62,7 +72,7 @@ export function linkSymbols(
     let external: string | undefined;
     for (const re of analysis.reexports) {
       if (re.exported !== name && re.exported !== '*') continue;
-      const target = resolveSpecifier(ctx, file, re.source);
+      const target = resolveSpecifier(ctx, file, re.source, resolveOptionsFor(file));
       if (!target) {
         // The chain leaves the project here (`export { cn } from "cn"`);
         // remember the true origin but keep looking for a project symbol.
@@ -90,7 +100,7 @@ export function linkSymbols(
 
         let target: SymbolInfo | undefined;
         if (imp) {
-          const resolvedFile = resolveSpecifier(ctx, a.file, imp.source);
+          const resolvedFile = resolveSpecifier(ctx, a.file, imp.source, resolveOptionsFor(a.file));
           if (resolvedFile) {
             const wanted =
               imp.imported === '*' ? (edge.name.split('.')[1] ?? 'default') : imp.imported;

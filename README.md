@@ -56,6 +56,25 @@ Every module-scope declaration becomes a **symbol** with a stable id (`<file>#<n
 
 Components are recognized as before: function, arrow, `memo`/`forwardRef`-wrapped, and class components. Props come from destructured parameters and TypeScript annotations (inline literals plus same-file interfaces/type aliases); class components use `this.props.x` accesses.
 
+### Python
+
+Python files are analyzed with the interpreter's own `ast` module, so the parse is always the
+language's own: module-level functions (signatures with annotations **and defaults**), classes
+(members, base classes, pydantic-style typed fields tagged `schema`), constants, and calls between
+project modules. Relative imports (`from .model import X`) resolve like any other import, so a
+Python call graph links up across files.
+
+Decorators become roles (`lru_cache`, `async`), and route decorators become `route` symbols:
+`@app.post("/classify")` reads as `POST /classify` for FastAPI, and Flask's
+`@app.route("/items", methods=["POST"])` works too.
+
+Visibility follows Python's own conventions: `__all__` when a module defines it, otherwise the
+leading-underscore rule.
+
+One interpreter run covers the whole scan. If `python3` is missing or a file will not parse, that
+file still gets a hash-only symbol and an entry in the snapshot's `errors`, so it shows as changed
+rather than silently disappearing.
+
 ### Beyond JavaScript
 
 Files that are not code still decide how a system behaves, so they are recorded as symbols too:
@@ -148,13 +167,17 @@ hiarky view
 
 Extractors are plugins: one object with `globs`, `matches(file)`, and `analyze(abs, rel)` returning
 symbols, imports, and re-exports (`src/extractors/`). Everything downstream — linking, snapshotting,
-diffing, the viewer — works on that shape, so a Python or schema extractor is a single new file
-registered in `src/extractors/index.ts`.
+diffing, the viewer — works on that shape, so a new language is a single new file registered in
+`src/extractors/index.ts`.
+
+An extractor with a fixed cost per invocation can also implement `analyzeMany(files)`; a scan then
+calls it once for all its files instead of once per file. That is how the Python extractor spawns
+one interpreter for the whole project.
 
 ## Roadmap
 
 - `hiarky review <base>..<head>` — field-level diffs, rename/move detection, and impact-ranked
   change summaries for code review, as markdown or JSON
-- Python extractor, then a tree-sitter fallback for the long tail
+- A tree-sitter fallback for the long tail of languages
 - Tests as first-class symbols, so "changed without touching tests" is visible
 - Per-file analysis cache keyed by git blob sha, so backfill re-parses only what changed

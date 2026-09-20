@@ -1,5 +1,15 @@
 /** Source language of a symbol, derived from the extractor that produced it. */
-export type Lang = 'js' | 'jsx' | 'ts' | 'tsx' | 'prisma' | 'sql' | 'json' | 'yaml' | 'env';
+export type Lang =
+  | 'js'
+  | 'jsx'
+  | 'ts'
+  | 'tsx'
+  | 'py'
+  | 'prisma'
+  | 'sql'
+  | 'json'
+  | 'yaml'
+  | 'env';
 
 /**
  * What a symbol is. Kept deliberately coarse: extractors for other languages
@@ -22,7 +32,9 @@ export type SymbolKind =
   /** A database migration */
   | 'migration'
   /** A block of project configuration: scripts, dependencies, env keys */
-  | 'config';
+  | 'config'
+  /** A whole file, when it could not be analyzed in more detail */
+  | 'module';
 
 /** Kinds that describe declared data or configuration rather than code. */
 export const DECLARATIVE_KINDS: SymbolKind[] = ['model', 'migration', 'config'];
