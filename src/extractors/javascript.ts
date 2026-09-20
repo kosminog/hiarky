@@ -5,6 +5,7 @@ import { parse, ParseResult, ParserPlugin } from '@babel/parser';
 import traverse, { NodePath } from '@babel/traverse';
 import * as t from '@babel/types';
 import { isHttpMethod, routeFileInfo, trpcRouterOf, TrpcRouter } from './frameworks';
+import { isHarnessCall, testSuitesOf } from './tests';
 import {
   Edge,
   FileAnalysis,
@@ -169,6 +170,7 @@ function scanBody(p: NodePath, knownCallees: (name: string) => boolean): BodyFac
   const hooks: HookUsage[] = [];
   const renders = new Map<string, Edge>();
   const calls = new Map<string, Edge>();
+  const references = new Map<string, Edge>();
 
   const visitCall = (cp: NodePath<t.CallExpression>) => {
     const name = calleeName(cp.node.callee as t.Expression);
@@ -209,12 +211,39 @@ function scanBody(p: NodePath, knownCallees: (name: string) => boolean): BodyFac
     }
   };
 
+  // Values are not only called: a router handed to a factory, a component
+  // passed as a prop, a schema referenced by name. Without these the
+  // dependency graph breaks exactly where indirection starts.
+  const visitIdentifier = (ip: NodePath<t.Identifier>) => {
+    const name = ip.node.name;
+    if (!knownCallees(name) || calls.has(name) || renders.has(name) || references.has(name)) {
+      return;
+    }
+    const parent = ip.parentPath;
+    if (!parent) return;
+    // Not a reference: the callee of a call, a property name, a key, a label,
+    // or the name being declared.
+    if (parent.isCallExpression() && parent.node.callee === ip.node) return;
+    if (parent.isMemberExpression() && parent.node.property === ip.node && !parent.node.computed) {
+      return;
+    }
+    if (parent.isObjectProperty() && parent.node.key === ip.node && !parent.node.computed) return;
+    if (parent.isVariableDeclarator() && parent.node.id === ip.node) return;
+    if (parent.isFunctionDeclaration() || parent.isClassDeclaration()) return;
+    if (ip.isReferencedIdentifier() === false) return;
+    references.set(name, { kind: 'references', name });
+  };
+
   p.traverse({
     CallExpression: visitCall,
     JSXOpeningElement: visitJsx,
+    Identifier: visitIdentifier,
   });
 
-  return { hooks, edges: [...renders.values(), ...calls.values()] };
+  return {
+    hooks,
+    edges: [...renders.values(), ...calls.values(), ...references.values()],
+  };
 }
 
 /** Normalized `(params): Return` text for a function-ish node. */
@@ -631,6 +660,30 @@ export function analyzeJavascript(absFile: string, relFile: string): FileAnalysi
           addFunction(name, inner, fnPath, node);
         }
       }
+    }
+  }
+
+  // Test suites are declared by calling describe(), not by declaring anything,
+  // so they need their own pass over the top-level statements.
+  const suites = testSuitesOf(ast.program, relFile);
+  if (suites.length > 0) {
+    const pathOfStatement = new Map<t.Node, NodePath>();
+    for (const stmt of bodyPaths) {
+      if (stmt.isExpressionStatement()) pathOfStatement.set(stmt.node.expression, stmt);
+    }
+    for (const suite of suites) {
+      const stmtPath = pathOfStatement.get(suite.node);
+      const scanned = stmtPath
+        ? scanBody(stmtPath, knownCallee)
+        : { hooks: [], edges: [] as Edge[] };
+      // Two suites can share a title; keep both rather than dropping one
+      let name = suite.title;
+      for (let n = 2; seen.has(name); n++) name = `${suite.title} (${n})`;
+      push(name, 'test', suite.node, {
+        members: suite.cases,
+        // What the suite exercises, with the runner's own API removed
+        edges: scanned.edges.filter((e) => !isHarnessCall(e.name)),
+      });
     }
   }
 

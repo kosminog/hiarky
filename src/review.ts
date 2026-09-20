@@ -39,6 +39,13 @@ export interface SymbolChange {
   members?: string[];
   /** Role tags carried from the symbol, e.g. ["mutation", "protected"] */
   role?: string[];
+  /**
+   * Whether a test exercising this symbol changed in the same range:
+   * "changed" — at least one covering suite changed
+   * "unchanged" — suites cover it, none of them changed
+   * "none" — no suite references it at all
+   */
+  tests?: 'changed' | 'unchanged' | 'none';
   /** Whether the symbol is part of the module's public surface */
   exported: boolean;
   /** Set for moved/renamed symbols: where it used to live */
@@ -51,6 +58,8 @@ export interface SymbolChange {
 
 export interface Review {
   changes: SymbolChange[];
+  /** Changes worth a test that had none change with them */
+  untested: number;
   /** Files that had no symbols before — their additions summarize as one line */
   newFiles: string[];
   stats: {
@@ -284,6 +293,61 @@ export interface ReviewOptions {
   files?: string[];
 }
 
+/**
+ * Which suites exercise which symbols, from both sides of the range so a
+ * deleted suite still counts as coverage that existed.
+ *
+ * Coverage is recorded per symbol and per file: a test importing a router
+ * exercises its procedures too, even though it never names them.
+ */
+const COVERAGE_DEPTH = 2;
+const COVERAGE_EDGES: EdgeKind[] = ['calls', 'renders', 'references'];
+
+function buildCoverage(snapshots: Snapshot[]): {
+  bySymbol: Map<string, Set<string>>;
+  byFile: Map<string, Set<string>>;
+} {
+  const bySymbol = new Map<string, Set<string>>();
+  const byFile = new Map<string, Set<string>>();
+  const byId = new Map<string, SymbolInfo>();
+  for (const snapshot of snapshots) {
+    for (const symbol of snapshot.symbols) if (!byId.has(symbol.id)) byId.set(symbol.id, symbol);
+  }
+
+  const add = (map: Map<string, Set<string>>, key: string, testId: string) => {
+    const set = map.get(key) ?? new Set<string>();
+    set.add(testId);
+    map.set(key, set);
+  };
+
+  const targetsOf = (symbol: SymbolInfo) =>
+    symbol.edges
+      .filter((e) => e.id && COVERAGE_EDGES.includes(e.kind))
+      .map((e) => e.id as string);
+
+  for (const symbol of byId.values()) {
+    if (symbol.kind !== 'test') continue;
+    // A suite exercises what it calls, and what that in turn reaches: a test
+    // on a root router does cover the procedures the router mounts. Bounded,
+    // so a smoke test does not claim the whole codebase.
+    const visited = new Set<string>();
+    let frontier = targetsOf(symbol);
+    for (let depth = 0; depth < COVERAGE_DEPTH && frontier.length > 0; depth++) {
+      const next: string[] = [];
+      for (const id of frontier) {
+        if (visited.has(id)) continue;
+        visited.add(id);
+        add(bySymbol, id, symbol.id);
+        add(byFile, id.split('#')[0], symbol.id);
+        const target = byId.get(id);
+        if (target) next.push(...targetsOf(target));
+      }
+      frontier = next;
+    }
+  }
+  return { bySymbol, byFile };
+}
+
 /** Compare two snapshots into a ranked, field-level review. */
 export function reviewSnapshots(
   prev: Snapshot,
@@ -376,6 +440,28 @@ export function reviewSnapshots(
     );
   }
 
+  // Coverage comes from the whole snapshot, not the filtered slice: a suite
+  // that did not change is still coverage, and its file is not in the diff.
+  const coverage = buildCoverage([next, prev]);
+  const changedTests = new Set(
+    changes.filter((c) => c.symbolKind === 'test').map((c) => c.id)
+  );
+  for (const change of changes) {
+    // Tests never import a schema model or package.json, so "no test
+    // references this" would fire on every one of them and mean nothing.
+    if (change.symbolKind === 'test' || DECLARATIVE_KINDS.includes(change.symbolKind)) continue;
+    const covering = new Set([
+      ...(coverage.bySymbol.get(change.id) ?? []),
+      ...(coverage.byFile.get(change.file) ?? []),
+    ]);
+    change.tests =
+      covering.size === 0
+        ? 'none'
+        : [...covering].some((id) => changedTests.has(id))
+          ? 'changed'
+          : 'unchanged';
+  }
+
   changes.sort((a, b) => b.impact - a.impact || a.id.localeCompare(b.id));
 
   const beforeFiles = new Set([...before.values()].map((s) => s.file));
@@ -404,6 +490,9 @@ export function reviewSnapshots(
   return {
     changes,
     newFiles,
+    untested: changes.filter(
+      (c) => c.tests !== undefined && c.tests !== 'changed' && c.impact >= 10
+    ).length,
     stats: {
       added: changes.filter((c) => c.kind === 'added').length,
       removed: changes.filter((c) => c.kind === 'removed').length,

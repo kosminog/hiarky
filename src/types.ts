@@ -44,7 +44,9 @@ export type SymbolKind =
   /** A block of project configuration: scripts, dependencies, env keys */
   | 'config'
   /** A whole file, when it could not be analyzed in more detail */
-  | 'module';
+  | 'module'
+  /** A test suite, with its cases as members */
+  | 'test';
 
 /** Kinds that describe declared data or configuration rather than code. */
 export const DECLARATIVE_KINDS: SymbolKind[] = ['model', 'migration', 'config'];

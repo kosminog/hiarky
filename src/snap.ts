@@ -5,6 +5,7 @@ import fg from 'fast-glob';
 import * as yaml from 'js-yaml';
 import { AnalysisCache, contentKeys, nullCache, openCache } from './cache';
 import { Extractor, extractorFor, extractorGlobs } from './extractors';
+import { isTestFile } from './extractors/tests';
 import { loadResolverContext } from './modules';
 import { findProjectRoot, listGitFiles, readGitInfo, readProjectName } from './project';
 import { linkSymbols } from './resolve';
@@ -31,10 +32,6 @@ const IGNORE = [
   '**/vendor/**',
   '**/*.min.js',
   '**/*.d.ts',
-  '**/*.test.*',
-  '**/*.spec.*',
-  '**/__tests__/**',
-  '**/__mocks__/**',
 ];
 
 export function snapshotsDir(root: string): string {
@@ -109,6 +106,14 @@ export async function analyzeProject(
     }
   }
   results.sort((a, b) => a.file.localeCompare(b.file));
+
+  // One place, every language: anything declared in a test file is test code
+  for (const analysis of results) {
+    if (!isTestFile(analysis.file)) continue;
+    for (const symbol of analysis.symbols) {
+      if (!symbol.role?.includes('test')) symbol.role = [...(symbol.role ?? []), 'test'];
+    }
+  }
 
   const analyses: FileAnalysis[] = [];
   const errors: { file: string; message: string }[] = [];

@@ -30,6 +30,7 @@ function fieldLabel(field: FieldDelta['field'], symbolKind: SymbolKind): string 
     if (symbolKind === 'model') return 'fields';
     if (symbolKind === 'procedure') return 'input';
     if (symbolKind === 'migration') return 'statements';
+    if (symbolKind === 'test') return 'cases';
     return 'members';
   }
   return field;
@@ -72,6 +73,31 @@ function addedMembersLine(change: SymbolChange): string | null {
   return `${label}: ${shown}${rest > 0 ? ` … (${rest} more)` : ''}`;
 }
 
+/**
+ * Test case names contain commas and read as sentences, so they get one line
+ * each rather than being joined into an ambiguous list.
+ */
+function caseLines(change: SymbolChange): string[] {
+  const entries: string[] = [];
+  if (change.kind === 'added') {
+    entries.push(...(change.members ?? []).map((c) => `+ ${c}`));
+  }
+  for (const delta of change.deltas) {
+    if (delta.field !== 'members') continue;
+    entries.push(...(delta.added ?? []).map((c) => `+ ${c}`));
+    entries.push(...(delta.removed ?? []).map((c) => `- ${c}`));
+  }
+  if (entries.length <= MAX_ENTRIES) return entries;
+  return [...entries.slice(0, MAX_ENTRIES), `… (${entries.length - MAX_ENTRIES} more)`];
+}
+
+/** Flag a change that mattered enough to expect a test to move with it. */
+function testNote(change: SymbolChange): string | null {
+  if (!change.tests || change.impact < MEDIUM) return null;
+  if (change.tests === 'changed') return null;
+  return change.tests === 'none' ? 'no tests reference this' : 'no test change';
+}
+
 function verb(change: SymbolChange): string {
   return change.kind === 'moved' ? 'moved' : change.kind;
 }
@@ -105,6 +131,16 @@ function splitBodyOnly(changes: SymbolChange[]): {
     notable: changes.filter((c) => !set.has(c)),
     bodyOnly: [...bodyOnly].sort((a, b) => a.id.localeCompare(b.id)),
   };
+}
+
+/** Test suites are their own story; they would otherwise flood the tiers. */
+function splitTests(changes: SymbolChange[]): {
+  rest: SymbolChange[];
+  tests: SymbolChange[];
+} {
+  const tests = changes.filter((c) => c.symbolKind === 'test');
+  const set = new Set(tests);
+  return { rest: changes.filter((c) => !set.has(c)), tests };
 }
 
 /**
@@ -142,7 +178,11 @@ function headline(review: Review, ctx: ReportContext): string {
   if (s.removed) bits.push(`${s.removed} removed`);
   if (s.changed) bits.push(`${s.changed} changed`);
   if (s.moved) bits.push(`${s.moved} moved`);
-  return bits.length ? bits.join(' · ') : 'no symbol changes';
+  if (bits.length === 0) return 'no symbol changes';
+  if (review.untested > 0) {
+    bits.push(`${review.untested} without a test change`);
+  }
+  return bits.join(' · ');
 }
 
 function scope(ctx: ReportContext): string {
@@ -173,7 +213,8 @@ export function renderMarkdown(review: Review, ctx: ReportContext): string {
     );
   }
 
-  const { rest, perFile } = splitNewFiles(review.changes, review.newFiles);
+  const { rest: notTests, tests } = splitTests(review.changes);
+  const { rest, perFile } = splitNewFiles(notTests, review.newFiles);
   const { notable, bodyOnly } = splitBodyOnly(rest);
 
   if (perFile.length) {
@@ -192,11 +233,26 @@ export function renderMarkdown(review: Review, ctx: ReportContext): string {
         c.previousId && c.previousId !== c.id
           ? `\`${c.previousId}\` → \`${c.id}\``
           : `\`${c.file}\``;
-      out.push(`- **${c.name}** ${verb(c)} · ${tags(c)} — ${where}`);
+      const note = testNote(c);
+      out.push(
+        `- **${c.name}** ${verb(c)} · ${tags(c)}${note ? ` · _${note}_` : ''} — ${where}`
+      );
       const added = addedMembersLine(c);
       if (added) out.push(`  - ${added}`);
       for (const d of c.deltas) {
         if (d.field === 'body' && c.kind !== 'changed') continue;
+        out.push(`  - ${formatDelta(d, c.symbolKind)}`);
+      }
+    }
+  }
+
+  if (tests.length) {
+    out.push('', `### Tests (${tests.length})`, '');
+    for (const c of tests) {
+      out.push(`- **${c.name}** ${verb(c)} — \`${c.file}\``);
+      for (const line of caseLines(c)) out.push(`  - ${line}`);
+      for (const d of c.deltas) {
+        if (d.field === 'members') continue; // already listed case by case
         out.push(`  - ${formatDelta(d, c.symbolKind)}`);
       }
     }
@@ -233,7 +289,8 @@ export function renderText(review: Review, ctx: ReportContext): string {
     out.push(`public surface touched in ${review.surfaceFiles.length} file(s)`);
   }
 
-  const { rest, perFile } = splitNewFiles(review.changes, review.newFiles);
+  const { rest: notTests, tests } = splitTests(review.changes);
+  const { rest, perFile } = splitNewFiles(notTests, review.newFiles);
   const { notable, bodyOnly } = splitBodyOnly(rest);
 
   if (perFile.length) {
@@ -250,11 +307,24 @@ export function renderText(review: Review, ctx: ReportContext): string {
     for (const c of inTier) {
       const where =
         c.previousId && c.previousId !== c.id ? `${c.previousId} -> ${c.id}` : c.id;
-      out.push(`  ${verb(c).padEnd(8)} ${where}  [${tags(c)}]`);
+      const note = testNote(c);
+      out.push(`  ${verb(c).padEnd(8)} ${where}  [${tags(c)}]${note ? `  (${note})` : ''}`);
       const added = addedMembersLine(c);
       if (added) out.push(`             ${added}`);
       for (const d of c.deltas) {
         if (d.field === 'body' && c.kind !== 'changed') continue;
+        out.push(`             ${formatDelta(d, c.symbolKind)}`);
+      }
+    }
+  }
+
+  if (tests.length) {
+    out.push('', `TESTS (${tests.length})`);
+    for (const c of tests) {
+      out.push(`  ${verb(c).padEnd(8)} ${c.name}  [${c.file}]`);
+      for (const line of caseLines(c)) out.push(`             ${line}`);
+      for (const d of c.deltas) {
+        if (d.field === 'members') continue; // already listed case by case
         out.push(`             ${formatDelta(d, c.symbolKind)}`);
       }
     }

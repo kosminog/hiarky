@@ -88,6 +88,30 @@ Files that are not code still decide how a system behaves, so they are recorded 
 | `compose.yaml` | one per service, with its settings |
 | `pyproject.toml`, `Cargo.toml` | one per section, plus one per dependency list — a dependency reads as `+torch>=2.3.0` |
 
+### Tests
+
+Test files are scanned like any other source. Each top-level `describe` (or `suite`/`context`)
+becomes a `test` symbol whose members are its cases, nested ones joined as `outer > inner`; cases
+declared outside any suite are gathered under the file's name. Everything declared in a test file
+carries the `test` role, in every language.
+
+A suite's edges record **what it exercises** — the runner's own API (`describe`, `expect`, `vi`, …)
+is filtered out — so `hiarky review` can answer the question reviewers otherwise ask by hand:
+
+```
+changed  routers/company.ts#companyRouter.update  [procedure · mutation · protected]  (no test change)
+           input: +tier
+```
+
+Coverage follows the dependency graph two hops, so a suite that exercises a root router also covers
+the procedures it mounts. Three states are reported: a covering suite changed (no marker), suites
+cover it but none changed (`no test change`), or nothing references it (`no tests reference this`).
+The headline counts them: `12 added · 20 changed · 5 without a test change`.
+
+Two honest limits: schema, migrations, and config are exempt, since no test imports a Prisma model
+or `package.json` and the marker would fire on every one of them; and browser-driven tests
+(Playwright and friends) import nothing from the app, so they register no coverage.
+
 ### Everything else
 
 Languages without a dedicated extractor get a shallow declaration scan, so no source file is
@@ -148,8 +172,9 @@ What the report gives you, in order:
   routes, and procedures count as public whatever their file exports, and a new environment
   variable is weighted above the dependency bumps it sits beside. Each entry carries the reasons it
   scored where it did.
-- **Grouping that matches how code is read** — brand-new files summarize as one line each, and
-  body-only changes collapse into a single closing section.
+- **Grouping that matches how code is read** — brand-new files summarize as one line each, test
+  changes get their own section listing the cases added and removed, and body-only changes collapse
+  into a single closing section.
 
 ## The viewer
 
@@ -180,8 +205,8 @@ checkout is still recorded as clean.
 Inside a git repository, hiarky scans only files git would show (tracked, plus untracked files that
 are not ignored) — so generated clients and build output never reach a snapshot, whatever they are
 called. On top of that: `node_modules`, `dist`, `build`, `out`, `.next`, `coverage`, `generated`,
-`.turbo`, `vendor`, `.hiarky`, minified bundles, declaration files, and test files (`*.test.*`,
-`*.spec.*`, `__tests__`, `__mocks__`).
+`.turbo`, `vendor`, `.hiarky`, minified bundles, and declaration files. Test files are **not**
+ignored — they are part of the review.
 
 ## Try the demo
 
@@ -208,6 +233,5 @@ one interpreter for the whole project.
 
 - `hiarky review <base>..<head>` — field-level diffs, rename/move detection, and impact-ranked
   change summaries for code review, as markdown or JSON
-- Tests as first-class symbols, so "changed without touching tests" is visible
 - A tree-sitter backend to deepen the shallow-scanned languages (call graphs, nested declarations)
 - Per-symbol history and compare-any-two-snapshots in the viewer
