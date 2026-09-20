@@ -4,11 +4,12 @@ import { createHash, randomUUID } from 'crypto';
 import fg from 'fast-glob';
 import * as yaml from 'js-yaml';
 import { analyzeFile } from './analyze';
-import { findProjectRoot, readGitInfo, readProjectName } from './project';
-import { linkComponents } from './resolve';
-import { ComponentInfo, FileAnalysis, GitInfo, Snapshot } from './types';
+import { extractorGlobs } from './extractors';
+import { loadResolverContext } from './modules';
+import { findProjectRoot, listGitFiles, readGitInfo, readProjectName } from './project';
+import { linkSymbols } from './resolve';
+import { FileAnalysis, GitInfo, Snapshot, SNAPSHOT_VERSION, SymbolInfo } from './types';
 
-const SOURCE_GLOBS = ['**/*.{js,jsx,ts,tsx,mjs,cjs}'];
 const IGNORE = [
   '**/node_modules/**',
   '**/.hiarky/**',
@@ -17,6 +18,10 @@ const IGNORE = [
   '**/out/**',
   '**/.next/**',
   '**/coverage/**',
+  '**/generated/**',
+  '**/.turbo/**',
+  '**/vendor/**',
+  '**/*.min.js',
   '**/*.d.ts',
   '**/*.test.*',
   '**/*.spec.*',
@@ -30,42 +35,48 @@ export function snapshotsDir(root: string): string {
 
 export interface ProjectAnalysis {
   filesScanned: number;
-  filesWithComponents: number;
-  components: ComponentInfo[];
+  filesWithSymbols: number;
+  symbols: SymbolInfo[];
   roots: string[];
   errors: { file: string; message: string }[];
 }
 
+export function componentsOf(symbols: SymbolInfo[]): SymbolInfo[] {
+  return symbols.filter((s) => s.kind === 'component');
+}
+
 /** Scan and analyze a project directory. Pure: no snapshot is written. */
 export async function analyzeProject(root: string): Promise<ProjectAnalysis> {
-  const files = await fg(SOURCE_GLOBS, { cwd: root, ignore: IGNORE, absolute: false });
-  files.sort();
+  const globbed = await fg(extractorGlobs(), { cwd: root, ignore: IGNORE, absolute: false });
+  // In a git repository, ignored files are build output by definition
+  const gitFiles = listGitFiles(root);
+  const files = (gitFiles ? globbed.filter((f) => gitFiles.has(f)) : globbed).sort();
 
   const analyses: FileAnalysis[] = [];
   const errors: { file: string; message: string }[] = [];
   for (const rel of files) {
     const analysis = analyzeFile(path.join(root, rel), rel);
     if (analysis.parseError) errors.push({ file: rel, message: analysis.parseError });
-    if (analysis.components.length > 0) analyses.push(analysis);
+    if (analysis.symbols.length > 0 || analysis.reexports.length > 0) analyses.push(analysis);
   }
 
-  const { components, roots } = linkComponents(root, analyses);
+  const { symbols, roots } = linkSymbols(root, analyses, loadResolverContext(root));
   return {
     filesScanned: files.length,
-    filesWithComponents: analyses.length,
-    components,
+    filesWithSymbols: analyses.filter((a) => a.symbols.length > 0).length,
+    symbols,
     roots,
     errors,
   };
 }
 
-export function contentHashOf(components: ComponentInfo[], roots: string[]): string {
-  return createHash('sha256').update(JSON.stringify({ components, roots })).digest('hex');
+export function contentHashOf(symbols: SymbolInfo[], roots: string[]): string {
+  return createHash('sha256').update(JSON.stringify({ symbols, roots })).digest('hex');
 }
 
 /** Hash of a snapshot's content, computed on the fly for pre-hash snapshots. */
 export function snapshotHash(s: Snapshot): string {
-  return s.contentHash ?? contentHashOf(s.components, s.roots);
+  return s.contentHash ?? contentHashOf(s.symbols, s.roots);
 }
 
 export function buildSnapshot(
@@ -73,15 +84,19 @@ export function buildSnapshot(
   opts: { root: string; name: string; git: GitInfo | null; timestamp: Date; id?: string }
 ): Snapshot {
   return {
-    hiarky: 1,
+    hiarky: SNAPSHOT_VERSION,
     id: opts.id ?? randomUUID(),
     timestamp: opts.timestamp.toISOString(),
     project: { root: opts.root, name: opts.name },
     git: opts.git,
-    stats: { files: analysis.filesScanned, components: analysis.components.length },
-    components: analysis.components,
+    stats: {
+      files: analysis.filesScanned,
+      symbols: analysis.symbols.length,
+      components: componentsOf(analysis.symbols).length,
+    },
+    symbols: analysis.symbols,
     roots: analysis.roots,
-    contentHash: contentHashOf(analysis.components, analysis.roots),
+    contentHash: contentHashOf(analysis.symbols, analysis.roots),
     ...(analysis.errors.length > 0 ? { errors: analysis.errors } : {}),
   };
 }
@@ -102,6 +117,70 @@ export interface SnapshotEntry {
   snapshot: Snapshot;
 }
 
+/**
+ * Bring a pre-symbol (hiarky: 1) snapshot forward: its components become
+ * symbols of kind 'component', props become members, renders become edges.
+ * Old snapshots stay readable so an existing history keeps working.
+ */
+export function upgradeSnapshot(doc: Record<string, unknown>): Snapshot | null {
+  if (doc.hiarky === SNAPSHOT_VERSION) return doc as unknown as Snapshot;
+  if (doc.hiarky !== 1) return null;
+
+  const legacy = doc as unknown as {
+    components: Array<{
+      id: string;
+      name: string;
+      file: string;
+      kind: string;
+      export: SymbolInfo['export'];
+      props?: string[];
+      hooks?: SymbolInfo['hooks'];
+      renders?: Array<{ name: string; id?: string; external?: string }>;
+    }>;
+    stats: { files: number; components: number };
+  };
+
+  const symbols: SymbolInfo[] = (legacy.components ?? []).map((c) => ({
+    id: c.id,
+    name: c.name,
+    file: c.file,
+    lang: c.file.endsWith('.tsx')
+      ? 'tsx'
+      : c.file.endsWith('.ts')
+        ? 'ts'
+        : c.file.endsWith('.jsx')
+          ? 'jsx'
+          : 'js',
+    kind: 'component',
+    export: c.export,
+    ...(c.props && c.props.length ? { members: c.props } : {}),
+    ...(c.hooks && c.hooks.length ? { hooks: c.hooks } : {}),
+    edges: (c.renders ?? []).map((r) => ({
+      kind: 'renders' as const,
+      name: r.name,
+      ...(r.id ? { id: r.id } : {}),
+      ...(r.external ? { external: r.external } : {}),
+    })),
+    // Pre-v2 snapshots carry no body hashes; an empty one compares equal to
+    // itself, so upgraded history never shows phantom changes.
+    bodyHash: '',
+  }));
+
+  return {
+    ...(doc as unknown as Snapshot),
+    hiarky: SNAPSHOT_VERSION,
+    stats: {
+      files: legacy.stats?.files ?? 0,
+      symbols: symbols.length,
+      components: symbols.length,
+    },
+    symbols,
+    // A v1 contentHash was computed over the old shape; drop it so the
+    // upgraded snapshot rehashes from its symbols.
+    contentHash: undefined,
+  };
+}
+
 /** All snapshots with their file paths, sorted oldest → newest. */
 export function loadSnapshotEntries(root: string): SnapshotEntry[] {
   const dir = snapshotsDir(root);
@@ -111,8 +190,9 @@ export function loadSnapshotEntries(root: string): SnapshotEntry[] {
     if (!name.endsWith('.snapshot')) continue;
     const file = path.join(dir, name);
     try {
-      const doc = yaml.load(fs.readFileSync(file, 'utf8')) as Snapshot;
-      if (doc && doc.hiarky === 1) entries.push({ file, snapshot: doc });
+      const doc = yaml.load(fs.readFileSync(file, 'utf8')) as Record<string, unknown>;
+      const snapshot = doc && typeof doc === 'object' ? upgradeSnapshot(doc) : null;
+      if (snapshot) entries.push({ file, snapshot });
     } catch (err) {
       console.warn(`Skipping unreadable snapshot ${name}: ${err}`);
     }
@@ -151,8 +231,8 @@ export async function snapProject(root: string, opts: SnapOptions = {}): Promise
     if (latest && snapshotHash(latest.snapshot) === snapshot.contentHash) {
       console.log(
         opts.quiet
-          ? 'hiarky: no component changes; snapshot skipped'
-          : `No component changes since the last snapshot (${latest.snapshot.timestamp}); skipping. Use --force to snapshot anyway.`
+          ? 'hiarky: no changes; snapshot skipped'
+          : `No symbol changes since the last snapshot (${latest.snapshot.timestamp}); skipping. Use --force to snapshot anyway.`
       );
       return false;
     }
@@ -161,11 +241,15 @@ export async function snapProject(root: string, opts: SnapOptions = {}): Promise
   const file = writeSnapshot(root, snapshot);
 
   if (opts.quiet) {
-    console.log(`hiarky: snapped ${snapshot.stats.components} components → ${path.basename(file)}`);
+    console.log(
+      `hiarky: snapped ${snapshot.stats.symbols} symbols ` +
+        `(${snapshot.stats.components} components) → ${path.basename(file)}`
+    );
   } else {
     console.log(
-      `Snapped ${snapshot.stats.components} component${snapshot.stats.components === 1 ? '' : 's'} ` +
-        `across ${analysis.filesWithComponents} file${analysis.filesWithComponents === 1 ? '' : 's'} ` +
+      `Snapped ${snapshot.stats.symbols} symbol${snapshot.stats.symbols === 1 ? '' : 's'} ` +
+        `(${snapshot.stats.components} component${snapshot.stats.components === 1 ? '' : 's'}) ` +
+        `across ${analysis.filesWithSymbols} file${analysis.filesWithSymbols === 1 ? '' : 's'} ` +
         `(${analysis.filesScanned} scanned).`
     );
     if (snapshot.git) {

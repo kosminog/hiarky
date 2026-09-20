@@ -96,7 +96,7 @@ describe('git hooks', () => {
     expect(snapshotFiles(root)).toHaveLength(1);
     const [snap] = loadSnapshots(root);
     expect(snap.git?.dirty).toBe(false);
-    expect(snap.components.some((c) => c.name === 'New')).toBe(true);
+    expect(snap.symbols.some((c) => c.name === 'New')).toBe(true);
   });
 
   it('uninstalls its own hook', () => {

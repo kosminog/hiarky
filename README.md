@@ -1,8 +1,10 @@
 # hiarky
 
-Track your React project's component hierarchy, props, and hooks over time through snapshots.
+Track what your project's code declares — components, functions, classes, types, constants — and how it changes over time.
 
-`hiarky snap` statically analyzes your source (JS/JSX/TS/TSX) and records the component tree as a YAML snapshot in `.hiarky/snapshots/`. `hiarky view` generates a self-contained HTML viewer to browse and compare snapshots across time (and commits).
+`hiarky snap` statically analyzes your source (JS/JSX/TS/TSX) and records every module-scope symbol, with its dependencies, as a YAML snapshot in `.hiarky/snapshots/`. `hiarky view` generates a self-contained HTML viewer to browse and compare snapshots across time (and commits).
+
+React components are a first-class symbol kind — the viewer still shows the component tree — but they are no longer the only thing recorded, so changes to server code, types, and constants show up too.
 
 ## Install
 
@@ -28,21 +30,32 @@ hiarky install-hook    # snapshot on every git commit (post-commit hook; uninsta
 hiarky backfill        # retroactively snapshot past commits (--max <n>, --range <rev-range>)
 ```
 
-Snapshots are content-deduplicated: a snapshot identical to the previous one (same components,
-props, hooks, and hierarchy) is skipped, so watch mode and commit hooks never flood the history.
+Snapshots are content-deduplicated: a snapshot identical to the previous one is skipped, so watch
+mode and commit hooks never flood the history. Because each symbol carries a body hash, a change
+inside a function body counts as a change — not just changes to props, hooks, or hierarchy.
 `backfill` analyzes each past commit in a temporary git worktree and dates the snapshot by the
 commit's own timestamp, so the viewer timeline shows real project history.
 
 ## What a snapshot captures
 
-For every React component found (function, arrow, `memo`/`forwardRef`-wrapped, and class components):
+Every module-scope declaration becomes a **symbol** with a stable id (`<file>#<name>`):
 
-- **Hierarchy** — which components render which, resolved through import statements (not name-guessing). Components from packages are tagged with their package name.
-- **Props** — from destructured parameters and TypeScript type annotations (inline literals, plus same-file interfaces/type aliases). Class components: `this.props.x` accesses.
-- **Hooks** — every `useX(...)` call, with the bound variable name where available (e.g. `useState → count`).
-- **Metadata** — timestamp, UUID, git commit/branch/dirty flag, file and component counts.
+| Field | What it holds |
+| --- | --- |
+| `kind` | `component`, `function`, `class`, `type`, or `const` |
+| `export` | `default`, `named`, or `none` |
+| `signature` | normalized parameters and return type, for functions |
+| `members` | component props, interface/enum members, class members, object-literal keys |
+| `hooks` | every `useX(...)` call, with the bound variable name (`useState → count`) |
+| `edges` | `renders` (JSX children), `calls` (project functions and imports), `extends` |
+| `role` | tags such as `client` / `server` (from `"use client"`), `class` for class components |
+| `bodyHash` | hash of the declaration's source, so body-only edits are detected |
 
-Snapshots are stored as `.hiarky/snapshots/<timestamp>-<uuid>.snapshot` (YAML — human-readable and git-diffable).
+Components are recognized as before: function, arrow, `memo`/`forwardRef`-wrapped, and class components. Props come from destructured parameters and TypeScript annotations (inline literals plus same-file interfaces/type aliases); class components use `this.props.x` accesses.
+
+**Imports are resolved properly**, so the graph connects in real projects: relative paths, `tsconfig.json` path aliases (`~/*`, jsonc and `extends` chains included), workspace packages (`package.json#workspaces` and `pnpm-workspace.yaml`), and barrel files (`export * from`, `export { X } from`). When a barrel re-exports a third-party package, the edge records that package, not the local alias.
+
+Snapshot metadata carries the timestamp, UUID, git commit/branch/dirty flag, and file/symbol/component counts. Snapshots are stored as `.hiarky/snapshots/<timestamp>-<uuid>.snapshot` (YAML — human-readable and git-diffable). Snapshots written by earlier versions (`hiarky: 1`) are upgraded on read, so an existing history keeps working.
 
 ## The viewer
 
@@ -50,12 +63,17 @@ Snapshots are stored as `.hiarky/snapshots/<timestamp>-<uuid>.snapshot` (YAML �
 
 - Timeline sidebar listing every snapshot with commit info and diff badges (`+added`, `−removed`, `~changed` vs the previous snapshot)
 - Collapsible component tree with added/changed markers; recursive renders and unresolved/external components handled
-- Detail panel per component: file, props, hooks, and clickable rendered children
+- An **Other symbols** section grouping every non-component symbol by file, with the same change markers
+- Detail panel per symbol: file, signature, members, hooks, and clickable `renders` / `calls` targets
 - Navigate between snapshots with ← / →
 
 ## Ignored while scanning
 
-`node_modules`, `dist`, `build`, `out`, `.next`, `coverage`, `.hiarky`, declaration files, and test files (`*.test.*`, `*.spec.*`, `__tests__`, `__mocks__`).
+Inside a git repository, hiarky scans only files git would show (tracked, plus untracked files that
+are not ignored) — so generated clients and build output never reach a snapshot, whatever they are
+called. On top of that: `node_modules`, `dist`, `build`, `out`, `.next`, `coverage`, `generated`,
+`.turbo`, `vendor`, `.hiarky`, minified bundles, declaration files, and test files (`*.test.*`,
+`*.spec.*`, `__tests__`, `__mocks__`).
 
 ## Try the demo
 
@@ -67,8 +85,19 @@ hiarky snap
 hiarky view
 ```
 
+## Adding a language
+
+Extractors are plugins: one object with `globs`, `matches(file)`, and `analyze(abs, rel)` returning
+symbols, imports, and re-exports (`src/extractors/`). Everything downstream — linking, snapshotting,
+diffing, the viewer — works on that shape, so a Python or schema extractor is a single new file
+registered in `src/extractors/index.ts`.
+
 ## Roadmap
 
-- Runtime capture of live prop/state values
-- Smarter hierarchy resolution (barrel files, tsconfig path aliases, workspaces)
-- Per-component history view and compare-any-two-snapshots in the viewer
+- `hiarky review <base>..<head>` — field-level diffs, rename/move detection, and impact-ranked
+  change summaries for code review, as markdown or JSON
+- Declarative extractors (Prisma schema, SQL migrations, `package.json`, `.env.example`) and
+  framework recognizers (Next.js routes, tRPC procedures)
+- Python extractor, then a tree-sitter fallback for the long tail
+- Tests as first-class symbols, so "changed without touching tests" is visible
+- Per-file analysis cache keyed by git blob sha, so backfill re-parses only what changed

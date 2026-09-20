@@ -119,7 +119,7 @@ describe('edge cases', () => {
       await snapProject(root, { quiet: true });
       const [snap] = loadSnapshots(root);
       expect(snap.errors?.some((e) => e.file === 'src/Bad.tsx')).toBe(true);
-      expect(snap.components.some((c) => c.name === 'Good')).toBe(true);
+      expect(snap.symbols.some((c) => c.name === 'Good')).toBe(true);
     } finally {
       cleanup(root);
     }

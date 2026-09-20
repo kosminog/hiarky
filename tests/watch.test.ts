@@ -5,6 +5,7 @@ import { loadSnapshots } from '../src/snap';
 import { watchProject, WatchHandle } from '../src/watch';
 import {
   APP_TSX,
+  componentNames,
   BUTTON_TSX,
   cleanup,
   makeProject,
@@ -61,7 +62,7 @@ describe('watch mode', () => {
     await waitFor(() => events.length === 4);
     expect(events[3]).toBe(true);
     const snaps = loadSnapshots(root);
-    expect(snaps[snaps.length - 1].components.map((c) => c.name)).toEqual(['App']);
+    expect(componentNames(snaps[snaps.length - 1].symbols)).toEqual(['App']);
   });
 
   it('stops reacting after close', async () => {

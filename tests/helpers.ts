@@ -2,7 +2,7 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { ComponentInfo, Snapshot } from '../src/types';
+import { Edge, SNAPSHOT_VERSION, Snapshot, SymbolInfo } from '../src/types';
 
 /**
  * Create a throwaway project in a temp directory.
@@ -71,40 +71,62 @@ export async function waitFor(cond: () => boolean, timeoutMs = 5000, intervalMs 
   }
 }
 
-export function makeComponent(over: Partial<ComponentInfo> & { id: string }): ComponentInfo {
+export interface RenderSugar {
+  name: string;
+  id?: string;
+  external?: string;
+}
+
+/** A symbol with sane defaults; `renders` is sugar for renders-kind edges. */
+export function makeSymbol(
+  over: Partial<SymbolInfo> & { id: string; renders?: RenderSugar[] }
+): SymbolInfo {
+  const { renders, ...rest } = over;
+  const renderEdges: Edge[] = (renders ?? []).map((r) => ({ kind: 'renders', ...r }));
   return {
     name: over.id.split('#')[1],
     file: over.id.split('#')[0],
+    lang: 'tsx',
     kind: 'function',
     export: 'named',
-    props: [],
-    hooks: [],
-    renders: [],
-    ...over,
+    bodyHash: '',
+    ...rest,
+    edges: [...renderEdges, ...(rest.edges ?? [])],
   };
 }
 
-export function makeSnapshot(
-  components: ComponentInfo[],
-  over: Partial<Snapshot> = {}
-): Snapshot {
-  // Same semantics as linkComponents: rendered by another component (not itself)
+export function makeComponent(
+  over: Partial<SymbolInfo> & { id: string; renders?: RenderSugar[] }
+): SymbolInfo {
+  return makeSymbol({ kind: 'component', ...over });
+}
+
+export function makeSnapshot(symbols: SymbolInfo[], over: Partial<Snapshot> = {}): Snapshot {
+  // Same semantics as linkSymbols: rendered by another component (not itself)
   const rendered = new Set(
-    components.flatMap((c) =>
-      c.renders.filter((r) => r.id && r.id !== c.id).map((r) => r.id as string)
+    symbols.flatMap((s) =>
+      s.edges
+        .filter((e) => e.kind === 'renders' && e.id && e.id !== s.id)
+        .map((e) => e.id as string)
     )
   );
+  const components = symbols.filter((s) => s.kind === 'component');
   return {
-    hiarky: 1,
+    hiarky: SNAPSHOT_VERSION,
     id: 'test-' + Math.random().toString(36).slice(2, 10),
     timestamp: '2026-01-01T00:00:00.000Z',
     project: { root: '/x', name: 'x' },
     git: null,
-    stats: { files: components.length, components: components.length },
-    components,
+    stats: { files: symbols.length, symbols: symbols.length, components: components.length },
+    symbols,
     roots: components.filter((c) => !rendered.has(c.id)).map((c) => c.id),
     ...over,
   };
+}
+
+/** Components of a snapshot or analysis result, for assertions. */
+export function componentNames(symbols: SymbolInfo[]): string[] {
+  return symbols.filter((s) => s.kind === 'component').map((s) => s.name);
 }
 
 export const BUTTON_TSX = `export function Button({ label }: { label: string }) {

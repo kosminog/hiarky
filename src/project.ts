@@ -37,6 +37,28 @@ function git(root: string, args: string[]): string {
     .trim();
 }
 
+/**
+ * Files git would show for this directory: tracked, plus untracked files that
+ * are not ignored. Returns null outside a git repository.
+ *
+ * Ignore rules are the project's own statement about what is source and what
+ * is build output — honouring them keeps generated bundles (a Prisma client,
+ * a compiled bundle) out of snapshots without hiarky having to guess.
+ */
+export function listGitFiles(root: string): Set<string> | null {
+  try {
+    const out = execFileSync(
+      'git',
+      ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+      { cwd: root, stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 256 * 1024 * 1024 }
+    ).toString();
+    const files = out.split('\0').filter(Boolean);
+    return new Set(files);
+  } catch {
+    return null;
+  }
+}
+
 export function readGitInfo(root: string): GitInfo | null {
   try {
     const commit = git(root, ['rev-parse', 'HEAD']);

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { diffSnapshots } from '../src/diff';
 import { makeComponent, makeSnapshot } from './helpers';
 
-const a = makeComponent({ id: 'src/A.tsx#A', props: ['x'] });
+const a = makeComponent({ id: 'src/A.tsx#A', members: ['x'] });
 const b = makeComponent({ id: 'src/B.tsx#B', hooks: [{ name: 'useState', detail: 's' }] });
 
 describe('diffSnapshots', () => {
@@ -15,7 +15,7 @@ describe('diffSnapshots', () => {
   });
 
   it('flags prop changes as changed', () => {
-    const a2 = makeComponent({ id: 'src/A.tsx#A', props: ['x', 'y'] });
+    const a2 = makeComponent({ id: 'src/A.tsx#A', members: ['x', 'y'] });
     const d = diffSnapshots(makeSnapshot([a]), makeSnapshot([a2]));
     expect(d.changed).toEqual(['src/A.tsx#A']);
     expect(d.added).toEqual([]);

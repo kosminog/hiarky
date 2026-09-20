@@ -91,6 +91,13 @@ export function buildViewerHtml(snapshots: Snapshot[], projectName: string): str
   .dot.changed { background: var(--changed); }
   .hookcount { color: var(--muted); font-size: 11px; }
   .cycle { color: var(--muted); font-size: 11px; font-style: italic; }
+  .others { margin-top: 18px; }
+  .others h2 { display: flex; align-items: center; gap: 4px; }
+  .file-label { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .detail .signature {
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+    margin-top: 6px; word-break: break-all;
+  }
   .removed-list { margin-top: 16px; }
   .removed-list li { color: var(--removed); font-family: var(--mono); font-size: 12px; }
   .detail {
@@ -126,6 +133,7 @@ export function buildViewerHtml(snapshots: Snapshot[], projectName: string): str
   <div class="tree-pane">
     <h2>Component tree</h2>
     <div id="tree"></div>
+    <div id="others" class="others"></div>
     <div id="removed" class="removed-list"></div>
   </div>
   <aside class="detail" id="detail"></aside>
@@ -139,9 +147,13 @@ const collapsed = new Set();
 
 const byId = (snap) => {
   const m = new Map();
-  for (const c of snap.components) m.set(c.id, c);
+  for (const c of snap.symbols) m.set(c.id, c);
   return m;
 };
+
+const componentsOf = (snap) => snap.symbols.filter(s => s.kind === 'component');
+const rendersOf = (sym) => (sym.edges || []).filter(e => e.kind === 'renders');
+const callsOf = (sym) => (sym.edges || []).filter(e => e.kind === 'calls');
 
 // Inlined from src/diff.ts at generation time — single source of truth
 const diffSnapshots = ${diffSnapshots.toString()};
@@ -185,7 +197,8 @@ function renderTimeline() {
     if (changed.size) badges.push(el('span', { class: 'badge changed' }, '~' + changed.size));
     const meta = el('div', { class: 'snap-meta' },
       s.git ? el('span', { class: 'commit' }, s.git.commit.slice(0, 7) + (s.git.dirty ? '*' : '')) : null,
-      el('span', {}, s.stats.components + ' components'),
+      el('span', {}, s.stats.symbols + ' symbols'),
+      el('span', {}, s.stats.components + ' comp'),
       ...badges
     );
     nav.append(el('button', {
@@ -199,7 +212,7 @@ function renderTimeline() {
 
 function renderNode(comp, map, diff, path) {
   const isCycle = path.includes(comp.id);
-  const children = isCycle ? [] : comp.renders;
+  const children = isCycle ? [] : rendersOf(comp);
   const hasKids = children.length > 0;
   const isCollapsed = collapsed.has(comp.id);
 
@@ -217,7 +230,7 @@ function renderNode(comp, map, diff, path) {
       class: 'node-name' + (comp.id === selectedId ? ' selected' : ''),
       onclick: () => { selectedId = comp.id; render(); }
     }, comp.name),
-    comp.hooks.length ? el('span', { class: 'hookcount' }, comp.hooks.length + ' hook' + (comp.hooks.length > 1 ? 's' : '')) : null,
+    (comp.hooks || []).length ? el('span', { class: 'hookcount' }, comp.hooks.length + ' hook' + (comp.hooks.length > 1 ? 's' : '')) : null,
     isCycle ? el('span', { class: 'cycle' }, '(recursive)') : null
   );
 
@@ -247,14 +260,15 @@ function renderTree() {
   const container = document.getElementById('tree');
   container.textContent = '';
   const ul = el('ul', { class: 'tree' });
+  const components = componentsOf(snap);
   const roots = snap.roots.filter(id => map.has(id));
-  if (roots.length === 0 && snap.components.length > 0) {
+  if (roots.length === 0 && components.length > 0) {
     // Fully cyclic graph fallback: show everything top-level
-    for (const c of snap.components) ul.append(renderNode(c, map, diff, []));
+    for (const c of components) ul.append(renderNode(c, map, diff, []));
   } else {
     for (const id of roots) ul.append(renderNode(map.get(id), map, diff, []));
   }
-  if (snap.components.length === 0) {
+  if (components.length === 0) {
     container.append(el('p', { class: 'empty' }, 'No components in this snapshot.'));
   }
   container.append(ul);
@@ -269,13 +283,64 @@ function renderTree() {
   }
 }
 
+// Everything that is not a React component: server modules, types, constants.
+// They have no place in the render tree but are half the review surface.
+function renderOthers() {
+  const snap = SNAPSHOTS[current];
+  const diff = diffWithPrev(current);
+  const box = document.getElementById('others');
+  box.textContent = '';
+  const others = snap.symbols.filter(s => s.kind !== 'component');
+  if (others.length === 0) return;
+
+  const open = !collapsed.has('__others__');
+  box.append(el('h2', {},
+    el('button', {
+      class: 'caret',
+      onclick: () => {
+        if (open) collapsed.add('__others__'); else collapsed.delete('__others__');
+        render();
+      }
+    }, open ? '\u25BC' : '\u25B6'),
+    'Other symbols (' + others.length + ')'
+  ));
+  if (!open) return;
+
+  const byFile = new Map();
+  for (const s of others) {
+    if (!byFile.has(s.file)) byFile.set(s.file, []);
+    byFile.get(s.file).push(s);
+  }
+  const ul = el('ul', { class: 'tree' });
+  for (const [file, syms] of byFile) {
+    const inner = el('ul', {});
+    for (const s of syms) {
+      inner.append(el('li', {}, el('div', { class: 'node-row' },
+        el('button', { class: 'caret leaf' }, ''),
+        diff.added.has(s.id) ? el('span', { class: 'dot added', title: 'added' }) :
+          diff.changed.has(s.id) ? el('span', { class: 'dot changed', title: 'changed' }) : null,
+        el('button', {
+          class: 'node-name' + (s.id === selectedId ? ' selected' : ''),
+          onclick: () => { selectedId = s.id; render(); }
+        }, s.name),
+        el('span', { class: 'pkg' }, s.kind)
+      )));
+    }
+    ul.append(el('li', {}, el('div', { class: 'node-row' },
+      el('button', { class: 'caret leaf' }, ''),
+      el('span', { class: 'file-label' }, file)
+    ), inner));
+  }
+  box.append(ul);
+}
+
 function renderDetail() {
   const box = document.getElementById('detail');
   box.textContent = '';
   const snap = SNAPSHOTS[current];
-  const comp = snap.components.find(c => c.id === selectedId);
+  const comp = snap.symbols.find(c => c.id === selectedId);
   if (!comp) {
-    box.append(el('p', { class: 'placeholder' }, 'Select a component to inspect its props, hooks, and children.'));
+    box.append(el('p', { class: 'placeholder' }, 'Select a symbol to inspect its members, hooks, and dependencies.'));
     return;
   }
   box.append(
@@ -283,8 +348,10 @@ function renderDetail() {
     el('div', { class: 'file' }, comp.file),
     el('div', { style: 'margin-top:6px' },
       el('span', { class: 'tag' }, comp.kind),
-      el('span', { class: 'tag' }, comp.export === 'none' ? 'not exported' : comp.export + ' export')
-    )
+      el('span', { class: 'tag' }, comp.export === 'none' ? 'not exported' : comp.export + ' export'),
+      ...(comp.role || []).map(r => el('span', { class: 'tag' }, r))
+    ),
+    comp.signature ? el('div', { class: 'signature' }, comp.signature) : null
   );
 
   const section = (title, items, renderItem) => {
@@ -298,26 +365,35 @@ function renderDetail() {
     return s;
   };
 
-  box.append(section('Props', comp.props, p => el('li', {}, el('span', { class: 'prop' }, p))));
-  box.append(section('Hooks', comp.hooks, h => el('li', {},
-    el('span', { class: 'hook-name' }, h.name),
-    h.detail ? el('span', { class: 'hook-detail' }, ' \\u2192 ' + h.detail) : null
-  )));
   const map = byId(snap);
-  box.append(section('Renders', comp.renders, r => {
-    if (r.id && map.has(r.id)) {
+  const edgeItem = (e) => {
+    if (e.id && map.has(e.id)) {
       return el('li', {}, el('button', {
         class: 'link',
-        onclick: () => { selectedId = r.id; render(); }
-      }, r.name));
+        onclick: () => { selectedId = e.id; render(); }
+      }, e.name));
     }
-    return el('li', {}, r.name + (r.external ? ' ' : ''), r.external ? el('span', { class: 'pkg' }, '(' + r.external + ')') : null);
-  }));
+    return el('li', {}, e.name + (e.external ? ' ' : ''), e.external ? el('span', { class: 'pkg' }, '(' + e.external + ')') : null);
+  };
+
+  box.append(section(comp.kind === 'component' ? 'Props' : 'Members', comp.members || [],
+    p => el('li', {}, el('span', { class: 'prop' }, p))));
+  if ((comp.hooks || []).length || comp.kind === 'component') {
+    box.append(section('Hooks', comp.hooks || [], h => el('li', {},
+      el('span', { class: 'hook-name' }, h.name),
+      h.detail ? el('span', { class: 'hook-detail' }, ' \\u2192 ' + h.detail) : null
+    )));
+  }
+  if (comp.kind === 'component' || rendersOf(comp).length) {
+    box.append(section('Renders', rendersOf(comp), edgeItem));
+  }
+  if (callsOf(comp).length) box.append(section('Calls', callsOf(comp), edgeItem));
 }
 
 function render() {
   renderTimeline();
   renderTree();
+  renderOthers();
   renderDetail();
 }
 

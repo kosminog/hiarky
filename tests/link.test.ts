@@ -1,8 +1,8 @@
 import * as path from 'path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { analyzeFile } from '../src/analyze';
-import { linkComponents } from '../src/resolve';
-import { ComponentInfo, RenderedChild } from '../src/types';
+import { linkSymbols } from '../src/resolve';
+import { Edge, edgesOf, SymbolInfo } from '../src/types';
 
 const ROOT = path.resolve('tests/fixtures/link-project');
 const FILES = [
@@ -14,29 +14,29 @@ const FILES = [
   'src/components/index.tsx',
 ];
 
-let components: ComponentInfo[];
+let symbols: SymbolInfo[];
 let roots: string[];
 
 const comp = (id: string) => {
-  const c = components.find((x) => x.id === id);
-  if (!c) throw new Error(`component ${id} not found`);
+  const c = symbols.find((x) => x.id === id);
+  if (!c) throw new Error(`symbol ${id} not found`);
   return c;
 };
-const child = (c: ComponentInfo, name: string): RenderedChild => {
-  const r = c.renders.find((x) => x.name === name);
+const child = (c: SymbolInfo, name: string): Edge => {
+  const r = edgesOf(c, 'renders').find((x) => x.name === name);
   if (!r) throw new Error(`${c.id} does not render ${name}`);
   return r;
 };
 
 beforeAll(() => {
   const analyses = FILES.map((f) => analyzeFile(path.join(ROOT, f), f));
-  ({ components, roots } = linkComponents(ROOT, analyses));
+  ({ symbols, roots } = linkSymbols(ROOT, analyses));
 });
 
-describe('linkComponents', () => {
+describe('linkSymbols', () => {
   it('finds all components across the project', () => {
     // localeCompare ordering: case-insensitive, so index.tsx sorts before Item.tsx
-    expect(components.map((c) => c.id)).toEqual([
+    expect(symbols.filter((s) => s.kind === 'component').map((c) => c.id)).toEqual([
       'src/App.tsx#App',
       'src/components/Header.tsx#Header',
       'src/components/Header.tsx#Logo',

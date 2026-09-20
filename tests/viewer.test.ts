@@ -22,9 +22,9 @@ const app = makeComponent({
     { name: 'Router', external: 'react-router' },
   ],
 });
-const button = makeComponent({ id: 'src/Button.tsx#Button', props: ['label'] });
+const button = makeComponent({ id: 'src/Button.tsx#Button', members: ['label'] });
 const gone = makeComponent({ id: 'src/Gone.tsx#Gone' });
-const button2 = makeComponent({ id: 'src/Button.tsx#Button', props: ['label', 'kind'] });
+const button2 = makeComponent({ id: 'src/Button.tsx#Button', members: ['label', 'kind'] });
 const fresh = makeComponent({ id: 'src/New.tsx#New' });
 
 const snapA = makeSnapshot([app, button, gone], { timestamp: '2026-01-01T00:00:00.000Z' });
@@ -107,7 +107,7 @@ describe('viewer safety', () => {
   it('never executes markup smuggled in component data or project name', () => {
     const evil = makeComponent({
       id: 'src/Evil.tsx#<img src=x onerror="window.__pwned=1">',
-      props: ['</script><script>window.__pwned2=1</script>'],
+      members: ['</script><script>window.__pwned2=1</script>'],
     });
     const { doc, win } = render([makeSnapshot([evil])], '<script>window.__pwned3=1</script>');
     // Page survived (single script, tree rendered as plain text)
