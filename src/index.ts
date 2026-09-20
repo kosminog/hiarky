@@ -4,6 +4,7 @@ import { backfillProject } from './backfill';
 import { installHook, uninstallHook } from './hook';
 import { listProject, pruneProject } from './list';
 import { requireProjectRoot } from './project';
+import { ReviewFormat, reviewProject } from './reviewCommand';
 import { snapProject } from './snap';
 import { viewProject } from './view';
 import { watchProject } from './watch';
@@ -47,6 +48,36 @@ program
   .action((opts: { keep: number; dryRun?: boolean }) => {
     pruneProject(requireProjectRoot(), opts);
   });
+
+program
+  .command('review')
+  .argument(
+    '[range]',
+    'git range to review: `main..HEAD`, `main...HEAD`, or a single rev (defaults to the last two snapshots)'
+  )
+  .description('Summarize the symbol-level changes in a commit range, ranked by impact')
+  .option('--format <format>', 'text | md | json', 'text')
+  .option('--per-commit', 'report each commit in the range separately')
+  .option('--all-files', 'include symbols in files the range never touched')
+  .action(
+    async (
+      range: string | undefined,
+      opts: { format: string; perCommit?: boolean; allFiles?: boolean }
+    ) => {
+      const format = opts.format as ReviewFormat;
+      if (!['text', 'md', 'json'].includes(format)) {
+        throw new Error(`unknown --format ${opts.format}; expected text, md, or json.`);
+      }
+      process.stdout.write(
+        await reviewProject(requireProjectRoot(), {
+          range,
+          format,
+          perCommit: opts.perCommit,
+          allFiles: opts.allFiles,
+        })
+      );
+    }
+  );
 
 program
   .command('watch')

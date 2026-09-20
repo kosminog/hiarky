@@ -1,7 +1,3 @@
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-import { execFileSync } from 'child_process';
 import { readProjectName } from './project';
 import {
   analyzeProject,
@@ -10,12 +6,7 @@ import {
   snapshotHash,
   writeSnapshot,
 } from './snap';
-
-function git(cwd: string, args: string[]): string {
-  return execFileSync('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] })
-    .toString()
-    .trim();
-}
+import { gitOut as git, readRepo, withWorktree } from './worktree';
 
 export interface BackfillResult {
   written: number;
@@ -28,18 +19,16 @@ export async function backfillProject(
   root: string,
   opts: { max: number; range?: string }
 ): Promise<BackfillResult> {
-  let repoRoot: string;
-  let branch: string;
+  const repo = readRepo(root);
+  const { repoRoot, branch } = repo;
   let commits: string[];
   try {
-    repoRoot = git(root, ['rev-parse', '--show-toplevel']);
-    branch = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
     const range = opts.range ?? 'HEAD';
     const list = git(root, ['rev-list', '--reverse', range]);
     commits = list ? list.split('\n') : [];
   } catch (err) {
     throw new Error(
-      `not a git repository with commits (${err instanceof Error ? err.message.split('\n')[0] : err}).`
+      `cannot list commits (${err instanceof Error ? err.message.split('\n')[0] : err}).`
     );
   }
   const result: BackfillResult = {
@@ -56,9 +45,6 @@ export async function backfillProject(
     commits = commits.slice(-opts.max); // most recent N, still oldest → newest
   }
 
-  // Where the project lives inside the repo (e.g. "" or "examples/demo-app")
-  const relProject = path.relative(repoRoot, root);
-
   // Commits already snapshotted (clean snapshots only)
   const existing = new Map<string, string>(); // sha -> content hash
   for (const s of loadSnapshots(root)) {
@@ -66,14 +52,11 @@ export async function backfillProject(
   }
 
   const projectName = readProjectName(root);
-  const worktree = fs.mkdtempSync(path.join(os.tmpdir(), 'hiarky-backfill-'));
   console.log(`Backfilling ${commits.length} commit(s) via temporary worktree ...`);
 
   let prevHash: string | null = null;
 
-  try {
-    git(repoRoot, ['worktree', 'add', '--detach', '--force', worktree, commits[0]]);
-
+  await withWorktree(repo, commits[0], async (wt) => {
     for (const sha of commits) {
       if (existing.has(sha)) {
         result.skippedExisting++;
@@ -81,9 +64,8 @@ export async function backfillProject(
         continue;
       }
 
-      git(worktree, ['checkout', '--detach', '--force', '--quiet', sha]);
-      const projDir = path.join(worktree, relProject);
-      if (!fs.existsSync(path.join(projDir, 'package.json'))) {
+      const projDir = wt.checkout(sha);
+      if (!projDir) {
         result.skippedMissing++;
         continue;
       }
@@ -105,16 +87,10 @@ export async function backfillProject(
       writeSnapshot(root, snapshot);
       result.written++;
       console.log(
-        `  ${sha.slice(0, 7)}  ${snapshot.timestamp}  ${snapshot.stats.components} components`
+        `  ${sha.slice(0, 7)}  ${snapshot.timestamp}  ${snapshot.stats.symbols} symbols`
       );
     }
-  } finally {
-    try {
-      git(repoRoot, ['worktree', 'remove', '--force', worktree]);
-    } catch {
-      fs.rmSync(worktree, { recursive: true, force: true });
-    }
-  }
+  });
 
   const skipped: string[] = [];
   if (result.skippedExisting) skipped.push(`${result.skippedExisting} already snapshotted`);

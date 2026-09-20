@@ -23,6 +23,8 @@ From anywhere inside a React project (hiarky walks up to the nearest `package.js
 hiarky snap            # take a snapshot (skipped if nothing changed; --force to override)
 hiarky view            # generate .hiarky/view.html and open it in a browser
 hiarky view --no-open  # generate without opening
+hiarky review          # what changed between the last two snapshots
+hiarky review main..HEAD --format md   # review a commit range, ranked by impact
 hiarky list            # table of snapshots: timestamp, commit, components, changes
 hiarky prune --keep 20 # delete old snapshots, keeping the newest 20 (--dry-run to preview)
 hiarky watch           # auto-snapshot on source changes (--debounce <ms>, default 1500)
@@ -56,6 +58,36 @@ Components are recognized as before: function, arrow, `memo`/`forwardRef`-wrappe
 **Imports are resolved properly**, so the graph connects in real projects: relative paths, `tsconfig.json` path aliases (`~/*`, jsonc and `extends` chains included), workspace packages (`package.json#workspaces` and `pnpm-workspace.yaml`), and barrel files (`export * from`, `export { X } from`). When a barrel re-exports a third-party package, the edge records that package, not the local alias.
 
 Snapshot metadata carries the timestamp, UUID, git commit/branch/dirty flag, and file/symbol/component counts. Snapshots are stored as `.hiarky/snapshots/<timestamp>-<uuid>.snapshot` (YAML — human-readable and git-diffable). Snapshots written by earlier versions (`hiarky: 1`) are upgraded on read, so an existing history keeps working.
+
+## Reviewing a range of commits
+
+`hiarky review` answers "what actually changed here?" for a branch or a commit range.
+
+```sh
+hiarky review                      # last two snapshots (no git needed)
+hiarky review main..HEAD           # everything on this branch
+hiarky review main...HEAD          # ...since the branches diverged
+hiarky review v1.2.0               # a single rev means <rev>..HEAD
+hiarky review main..HEAD --format md       # markdown, for a PR comment
+hiarky review main..HEAD --format json     # the full data, for tooling
+hiarky review main..HEAD --per-commit      # one section per commit
+```
+
+Endpoints that already have a clean snapshot reuse it; the rest are analyzed in a temporary git
+worktree, so your working tree is never touched and the project's own git hooks never fire. The
+review is then narrowed to files the range actually touched (`--all-files` to opt out).
+
+What the report gives you, in order:
+
+- **Field-level deltas** — `props: +subtitle`, `signature: (a) → (a, b)`, `members: +tier`, not just
+  "changed". Long lists are truncated in the report and complete in `--format json`.
+- **Move and rename detection** — a removal and an addition that share a body hash are reported as
+  one move. Without this, moving a directory reads as if everything was rewritten.
+- **Impact ranking** — export, kind, and signature changes outrank edge and hook changes, which
+  outrank body-only edits; anything on the public surface is weighted up. Each entry carries the
+  reasons it scored where it did.
+- **Grouping that matches how code is read** — brand-new files summarize as one line each, and
+  body-only changes collapse into a single closing section.
 
 ## The viewer
 
