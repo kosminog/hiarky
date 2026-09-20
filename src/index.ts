@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import * as path from 'path';
 import { Command } from 'commander';
 import { backfillProject } from './backfill';
 import { installHook, uninstallHook } from './hook';
@@ -9,16 +10,23 @@ import { snapProject } from './snap';
 import { viewProject } from './view';
 import { watchProject } from './watch';
 
+// __dirname is dist/ at runtime, so this resolves to the package root in both
+// a checkout and an installed tarball. Keeps `hiarky --version` honest.
+const { version } = require(path.join(__dirname, '..', 'package.json')) as { version: string };
+
 const program = new Command();
 
 program
   .name('hiarky')
-  .description('Track React component hierarchy, props, and hooks over time through snapshots')
-  .version('0.1.0');
+  .description(
+    'Snapshot what your project declares — components, routes, API procedures, database ' +
+      'models, migrations, config — and review how it changes over time'
+  )
+  .version(version);
 
 program
   .command('snap')
-  .description('Snapshot the current React component hierarchy into .hiarky/snapshots')
+  .description('Snapshot every module-scope symbol in this project into .hiarky/snapshots')
   .option('-f, --force', 'snapshot even if nothing changed since the last one')
   .option('-q, --quiet', 'single-line output (used by hooks and watch mode)')
   .option('--no-cache', 'ignore the per-file analysis cache')

@@ -9,15 +9,26 @@ React components are a first-class symbol kind — the viewer still shows the co
 ## Install
 
 ```sh
-npm install
-npm run build
-npm link   # makes the `hiarky` command available globally
-npm test   # run the vitest suite (analyzer, linking, diffing, CLI, git, watch, viewer)
+npm install -g hiarky
 ```
+
+Or run it without installing:
+
+```sh
+npx hiarky snap
+```
+
+### Requirements
+
+- **Node.js 18 or newer** — required.
+- **git** — optional. Without it, snapshots simply carry no commit metadata; `backfill`,
+  `install-hook`, and `review <range>` need it.
+- **python3** — optional, and only for scanning Python files. Without an interpreter on `PATH`,
+  `.py` files are recorded by hash alone instead of by symbol.
 
 ## Usage
 
-From anywhere inside a React project (hiarky walks up to the nearest `package.json`):
+From anywhere inside your project (hiarky walks up to the nearest `package.json`):
 
 ```sh
 hiarky snap            # take a snapshot (skipped if nothing changed; --force to override)
@@ -210,6 +221,8 @@ ignored — they are part of the review.
 
 ## Try the demo
 
+From a clone of this repository:
+
 ```sh
 cd examples/demo-app
 hiarky snap
@@ -229,9 +242,20 @@ An extractor with a fixed cost per invocation can also implement `analyzeMany(fi
 calls it once for all its files instead of once per file. That is how the Python extractor spawns
 one interpreter for the whole project.
 
+## Development
+
+```sh
+git clone https://github.com/kosminog/hiarky.git
+cd hiarky
+npm install
+npm run build
+npm link   # makes the `hiarky` command available globally from this checkout
+npm test   # vitest suite: analyzer, linking, diffing, CLI, git, watch, viewer
+```
+
+`npm run dev` rebuilds on change; `npm run typecheck` type-checks without emitting.
+
 ## Roadmap
 
-- `hiarky review <base>..<head>` — field-level diffs, rename/move detection, and impact-ranked
-  change summaries for code review, as markdown or JSON
 - A tree-sitter backend to deepen the shallow-scanned languages (call graphs, nested declarations)
 - Per-symbol history and compare-any-two-snapshots in the viewer

@@ -1,8 +1,17 @@
 {
   "name": "hiarky",
   "version": "0.1.0",
-  "description": "Track React component hierarchy, props, and hooks over time through snapshots",
+  "description": "Snapshot what your project declares — components, routes, API procedures, database models, migrations, config — and review how it changes over time",
   "license": "MIT",
+  "author": "Daniel Turkov (https://github.com/kosminog)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kosminog/hiarky.git"
+  },
+  "homepage": "https://github.com/kosminog/hiarky#readme",
+  "bugs": {
+    "url": "https://github.com/kosminog/hiarky/issues"
+  },
   "type": "commonjs",
   "bin": {
     "hiarky": "dist/index.js"
@@ -15,17 +24,24 @@
     "node": ">=18"
   },
   "scripts": {
+    "prebuild": "rm -rf dist",
     "build": "tsc",
     "dev": "tsc --watch",
-    "prepublishOnly": "npm run build",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "keywords": [
-    "react",
-    "cli",
+    "static-analysis",
+    "code-review",
     "snapshot",
-    "component-tree",
-    "visualization"
+    "codebase",
+    "diff",
+    "cli",
+    "react",
+    "python",
+    "prisma",
+    "typescript"
   ],
   "dependencies": {
     "@babel/parser": "^7.25.0",
