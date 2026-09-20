@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Snapshot what your project declares — components, routes, API procedures, database models, migrations, config — and review how it changes over time",
   "license": "MIT",
-  "author": "Daniel Turkov (https://github.com/kosminog)",
+  "author": "Kosminog (https://github.com/kosminog)",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/kosminog/hiarky.git"
