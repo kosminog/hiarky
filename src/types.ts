@@ -9,7 +9,17 @@ export type Lang =
   | 'sql'
   | 'json'
   | 'yaml'
-  | 'env';
+  | 'toml'
+  | 'env'
+  // Covered by the generic declaration scanner
+  | 'go'
+  | 'rust'
+  | 'java'
+  | 'kotlin'
+  | 'csharp'
+  | 'swift'
+  | 'php'
+  | 'sh';
 
 /**
  * What a symbol is. Kept deliberately coarse: extractors for other languages

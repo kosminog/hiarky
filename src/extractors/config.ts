@@ -3,9 +3,12 @@ import * as path from 'path';
 import { createHash } from 'crypto';
 import * as yaml from 'js-yaml';
 import { FileAnalysis, Lang, SymbolInfo } from '../types';
+import { parseToml, tomlSymbols } from './toml';
 
 export const CONFIG_GLOBS = [
   '**/package.json',
+  '**/pyproject.toml',
+  '**/Cargo.toml',
   '**/.env.example',
   '**/.env.sample',
   '**/compose.{yaml,yml}',
@@ -19,9 +22,17 @@ const COMPOSE_NAMES = new Set([
   'docker-compose.yml',
 ]);
 
+const TOML_NAMES = new Set(['pyproject.toml', 'Cargo.toml']);
+
 export function matchesConfig(file: string): boolean {
   const base = path.basename(file);
-  return base === 'package.json' || base === '.env.example' || base === '.env.sample' || COMPOSE_NAMES.has(base);
+  return (
+    base === 'package.json' ||
+    base === '.env.example' ||
+    base === '.env.sample' ||
+    TOML_NAMES.has(base) ||
+    COMPOSE_NAMES.has(base)
+  );
 }
 
 function hashOf(text: string): string {
@@ -134,9 +145,11 @@ export function analyzeConfig(absFile: string, relFile: string): FileAnalysis {
   const symbols =
     base === 'package.json'
       ? analyzePackageJson(source, relFile)
-      : COMPOSE_NAMES.has(base)
-        ? analyzeCompose(source, relFile)
-        : analyzeEnvExample(source, relFile);
+      : TOML_NAMES.has(base)
+        ? tomlSymbols(parseToml(source), relFile, 'toml', hashOf)
+        : COMPOSE_NAMES.has(base)
+          ? analyzeCompose(source, relFile)
+          : analyzeEnvExample(source, relFile);
 
   return { file: relFile, symbols, imports: [], reexports: [] };
 }

@@ -1,3 +1,4 @@
+import { AnalysisCache, nullCache, openCache } from './cache';
 import { renderMarkdown, renderText, ReportContext } from './report';
 import { readProjectName } from './project';
 import { Review, reviewSnapshots } from './review';
@@ -15,6 +16,8 @@ export interface ReviewCommandOptions {
   perCommit?: boolean;
   /** Include symbols in files the range never touched */
   allFiles?: boolean;
+  /** Skip the per-file analysis cache */
+  noCache?: boolean;
 }
 
 interface Endpoints {
@@ -61,7 +64,8 @@ function emptySnapshot(root: string, name: string, sha: string, branch: string):
 async function snapshotsForCommits(
   root: string,
   repo: RepoInfo,
-  shas: string[]
+  shas: string[],
+  cache: AnalysisCache
 ): Promise<Map<string, Snapshot>> {
   const name = readProjectName(root);
   const result = new Map<string, Snapshot>();
@@ -88,7 +92,7 @@ async function snapshotsForCommits(
         result.set(sha, emptySnapshot(root, name, sha, repo.branch));
         continue;
       }
-      const analysis = await analyzeProject(projDir);
+      const analysis = await analyzeProject(projDir, { cache });
       result.set(
         sha,
         buildSnapshot(analysis, {
@@ -139,6 +143,7 @@ export async function reviewProject(
 ): Promise<string> {
   if (!opts.range) return reviewLatestSnapshots(root, opts.format);
 
+  const cache = opts.noCache ? nullCache() : openCache(root);
   const repo = readRepo(root);
   const { base, head } = resolveRange(root, opts.range);
   const list = gitOut(root, ['rev-list', '--reverse', `${base}..${head}`]);
@@ -146,7 +151,8 @@ export async function reviewProject(
 
   if (opts.perCommit) {
     const shas = [base, ...commits];
-    const snapshots = await snapshotsForCommits(root, repo, shas);
+    const snapshots = await snapshotsForCommits(root, repo, shas, cache);
+    cache.flush();
     const sections: string[] = [];
     const jsonSections: unknown[] = [];
 
@@ -173,7 +179,8 @@ export async function reviewProject(
     return sections.join(opts.format === 'md' ? '\n---\n\n' : '\n');
   }
 
-  const snapshots = await snapshotsForCommits(root, repo, [base, head]);
+  const snapshots = await snapshotsForCommits(root, repo, [base, head], cache);
+  cache.flush();
   const files = opts.allFiles ? undefined : changedFiles(root, base, head);
   const review = reviewSnapshots(snapshots.get(base)!, snapshots.get(head)!, { files });
   const ctx: ReportContext = {

@@ -1,3 +1,4 @@
+import { nullCache, openCache } from './cache';
 import { readProjectName } from './project';
 import {
   analyzeProject,
@@ -17,7 +18,7 @@ export interface BackfillResult {
 
 export async function backfillProject(
   root: string,
-  opts: { max: number; range?: string }
+  opts: { max: number; range?: string; noCache?: boolean }
 ): Promise<BackfillResult> {
   const repo = readRepo(root);
   const { repoRoot, branch } = repo;
@@ -55,6 +56,9 @@ export async function backfillProject(
   console.log(`Backfilling ${commits.length} commit(s) via temporary worktree ...`);
 
   let prevHash: string | null = null;
+  // Anchored at the project, not the worktree, so it survives the run and is
+  // reused by the next one; most files are identical between adjacent commits.
+  const cache = opts.noCache ? nullCache() : openCache(root);
 
   await withWorktree(repo, commits[0], async (wt) => {
     for (const sha of commits) {
@@ -70,7 +74,7 @@ export async function backfillProject(
         continue;
       }
 
-      const analysis = await analyzeProject(projDir);
+      const analysis = await analyzeProject(projDir, { cache });
       const snapshot = buildSnapshot(analysis, {
         root,
         name: projectName,
@@ -91,6 +95,7 @@ export async function backfillProject(
       );
     }
   });
+  cache.flush();
 
   const skipped: string[] = [];
   if (result.skippedExisting) skipped.push(`${result.skippedExisting} already snapshotted`);

@@ -97,9 +97,7 @@ describe('git hooks', () => {
     const [snap] = loadSnapshots(root);
     expect(snap.git?.dirty).toBe(false);
     expect(snap.symbols.some((c) => c.name === 'New')).toBe(true);
-    // Spawns a real git commit, which spawns a node process through the hook;
-    // the default 5s timeout is tight when the suite runs files in parallel.
-  }, 20_000);
+  });
 
   it('uninstalls its own hook', () => {
     expect(uninstallHook(root)).toBe(true);

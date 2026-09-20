@@ -63,7 +63,11 @@ export function readGitInfo(root: string): GitInfo | null {
   try {
     const commit = git(root, ['rev-parse', 'HEAD']);
     const branch = git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
-    const dirty = git(root, ['status', '--porcelain']).length > 0;
+    // hiarky's own output is not a working-tree change: snapshots and the
+    // analysis cache must never make a clean checkout look dirty.
+    const dirty = git(root, ['status', '--porcelain'])
+      .split('\n')
+      .some((line) => line.trim().length > 0 && !line.slice(3).startsWith('.hiarky/'));
     return { commit, branch, dirty };
   } catch {
     return null; // not a git repo, or no commits yet

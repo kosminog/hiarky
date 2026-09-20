@@ -2,6 +2,7 @@ import * as path from 'path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { analyzeFile } from '../src/analyze';
 import { summarizeStatement } from '../src/extractors/sql';
+import { parseToml } from '../src/extractors/toml';
 import { linkSymbols } from '../src/resolve';
 import { analyzeProject } from '../src/snap';
 import { edgesOf, SymbolInfo } from '../src/types';
@@ -65,6 +66,24 @@ const COMPOSE = `services:
     image: redis:7
 `;
 
+const PYPROJECT = `[build-system]
+requires = ["setuptools>=68"]
+
+[project]
+name = "classifier"  # inline comment
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.111.0",
+  "torch>=2.3.0",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.5.0"]
+
+[tool.ruff]
+line-length = 100
+`;
+
 const PACKAGE = JSON.stringify({
   name: 'scratch',
   private: true,
@@ -87,6 +106,7 @@ beforeAll(() => {
     'prisma/schema.prisma': SCHEMA,
     'prisma/migrations/20260101000000_init/migration.sql': MIGRATION,
     '.env.example': ENV,
+    'pyproject.toml': PYPROJECT,
     'compose.yaml': COMPOSE,
   });
 });
@@ -197,12 +217,50 @@ describe('configuration files', () => {
   });
 });
 
+describe('toml configuration', () => {
+  it('parses sections, inline arrays, and multi-line arrays', () => {
+    const sections = parseToml(PYPROJECT);
+    expect(sections.map((s) => s.name)).toEqual([
+      'build-system',
+      'project',
+      'project.optional-dependencies',
+      'tool.ruff',
+    ]);
+    const project = sections.find((s) => s.name === 'project')!;
+    expect(project.scalars).toEqual(['name = classifier', 'requires-python = >=3.11']);
+    expect(project.arrays).toEqual([
+      { key: 'dependencies', values: ['fastapi>=0.111.0', 'torch>=2.3.0'] },
+    ]);
+  });
+
+  it('gives each dependency list its own symbol, one member per dependency', () => {
+    const symbols = analyze('pyproject.toml').symbols;
+    expect(symbols.map((s) => s.name)).toEqual([
+      'build-system.requires',
+      'project',
+      'project.dependencies',
+      'project.optional-dependencies.dev',
+      'tool.ruff',
+    ]);
+    expect(byName(symbols, 'project.dependencies').members).toEqual([
+      'fastapi>=0.111.0',
+      'torch>=2.3.0',
+    ]);
+    expect(byName(symbols, 'tool.ruff').members).toEqual(['line-length = 100']);
+  });
+
+  it('strips comments without breaking quoted values', () => {
+    const sections = parseToml('[a]\nurl = "https://x.dev/#frag"  # note\n');
+    expect(sections[0].scalars).toEqual(['url = https://x.dev/#frag']);
+  });
+});
+
 describe('project scan', () => {
   it('picks up every declarative file alongside the code', async () => {
     const analysis = await analyzeProject(root);
     const kinds = new Set(analysis.symbols.map((s) => s.kind));
     expect([...kinds].sort()).toEqual(['config', 'migration', 'model', 'type']);
     const langs = new Set(analysis.symbols.map((s) => s.lang));
-    expect([...langs].sort()).toEqual(['env', 'json', 'prisma', 'sql', 'yaml']);
+    expect([...langs].sort()).toEqual(['env', 'json', 'prisma', 'sql', 'toml', 'yaml']);
   });
 });

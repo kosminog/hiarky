@@ -1,5 +1,6 @@
 import { FileAnalysis } from '../types';
 import { analyzeConfig, CONFIG_GLOBS, matchesConfig } from './config';
+import { analyzeGeneric, GENERIC_GLOBS, matchesGeneric } from './generic';
 import { analyzeJavascript, JAVASCRIPT_GLOBS, matchesJavascript } from './javascript';
 import { analyzePrisma, matchesPrisma, PRISMA_GLOBS } from './prisma';
 import { analyzePython, analyzePythonMany, matchesPython, PYTHON_GLOBS } from './python';
@@ -62,6 +63,17 @@ export const configExtractor: Extractor = {
   analyze: analyzeConfig,
 };
 
+/**
+ * Last in the list: a shallow scanner for languages without a dedicated
+ * extractor, so no source file is invisible to a review.
+ */
+export const genericExtractor: Extractor = {
+  name: 'generic',
+  globs: GENERIC_GLOBS,
+  matches: matchesGeneric,
+  analyze: analyzeGeneric,
+};
+
 /** Registered extractors, in match order. */
 export const extractors: Extractor[] = [
   javascriptExtractor,
@@ -69,6 +81,7 @@ export const extractors: Extractor[] = [
   prismaExtractor,
   sqlExtractor,
   configExtractor,
+  genericExtractor,
 ];
 
 export function extractorFor(file: string): Extractor | undefined {

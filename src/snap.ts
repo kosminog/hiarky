@@ -3,6 +3,7 @@ import * as path from 'path';
 import { createHash, randomUUID } from 'crypto';
 import fg from 'fast-glob';
 import * as yaml from 'js-yaml';
+import { AnalysisCache, contentKeys, nullCache, openCache } from './cache';
 import { Extractor, extractorFor, extractorGlobs } from './extractors';
 import { loadResolverContext } from './modules';
 import { findProjectRoot, listGitFiles, readGitInfo, readProjectName } from './project';
@@ -52,8 +53,19 @@ export function componentsOf(symbols: SymbolInfo[]): SymbolInfo[] {
   return symbols.filter((s) => isRenderable(s.kind));
 }
 
+export interface AnalyzeOptions {
+  /**
+   * Reuse per-file results across scans. Supply a cache anchored at the real
+   * project root when scanning a checkout elsewhere (a backfill worktree).
+   */
+  cache?: AnalysisCache;
+}
+
 /** Scan and analyze a project directory. Pure: no snapshot is written. */
-export async function analyzeProject(root: string): Promise<ProjectAnalysis> {
+export async function analyzeProject(
+  root: string,
+  opts: AnalyzeOptions = {}
+): Promise<ProjectAnalysis> {
   // dot: true so `.env.example` is visible; `.git` is excluded above
   const globbed = await fg(extractorGlobs(), {
     cwd: root,
@@ -65,21 +77,36 @@ export async function analyzeProject(root: string): Promise<ProjectAnalysis> {
   const gitFiles = listGitFiles(root);
   const files = (gitFiles ? globbed.filter((f) => gitFiles.has(f)) : globbed).sort();
 
+  const cache = opts.cache ?? nullCache();
+  // Fingerprints are only worth computing when something will use them
+  const keys = opts.cache ? contentKeys(root, files) : new Map<string, string>();
+
   // Group by extractor so batch-capable ones (Python spawns an interpreter)
   // are invoked once rather than once per file.
   const groups = new Map<Extractor, Array<{ abs: string; rel: string }>>();
+  const results: FileAnalysis[] = [];
+
   for (const rel of files) {
     const extractor = extractorFor(rel);
     if (!extractor) continue;
+    const cached = cache.get(extractor.name, rel, keys.get(rel));
+    if (cached) {
+      results.push(cached);
+      continue;
+    }
     const group = groups.get(extractor) ?? [];
     group.push({ abs: path.join(root, rel), rel });
     groups.set(extractor, group);
   }
 
-  const results: FileAnalysis[] = [];
   for (const [extractor, group] of groups) {
-    if (extractor.analyzeMany) results.push(...extractor.analyzeMany(group));
-    else for (const f of group) results.push(extractor.analyze(f.abs, f.rel));
+    const fresh = extractor.analyzeMany
+      ? extractor.analyzeMany(group)
+      : group.map((f) => extractor.analyze(f.abs, f.rel));
+    for (const analysis of fresh) {
+      cache.set(extractor.name, analysis.file, keys.get(analysis.file), analysis);
+      results.push(analysis);
+    }
   }
   results.sort((a, b) => a.file.localeCompare(b.file));
 
@@ -238,6 +265,8 @@ export function loadSnapshots(root: string): Snapshot[] {
 export interface SnapOptions {
   force?: boolean;
   quiet?: boolean;
+  /** Skip the per-file analysis cache */
+  noCache?: boolean;
 }
 
 /** Snapshot a project root. Returns true if a snapshot was written. */
@@ -247,7 +276,9 @@ export async function snapProject(root: string, opts: SnapOptions = {}): Promise
   };
 
   log(`Scanning ${root} ...`);
-  const analysis = await analyzeProject(root);
+  const cache = opts.noCache ? nullCache() : openCache(root);
+  const analysis = await analyzeProject(root, { cache });
+  cache.flush();
   const snapshot = buildSnapshot(analysis, {
     root,
     name: readProjectName(root),

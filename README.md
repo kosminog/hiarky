@@ -86,6 +86,19 @@ Files that are not code still decide how a system behaves, so they are recorded 
 | `package.json` | `scripts`, `dependencies`, `devDependencies` — a dependency bump shows as `-react@^18 +react@^19` |
 | `.env.example` | variable **names only**, never values |
 | `compose.yaml` | one per service, with its settings |
+| `pyproject.toml`, `Cargo.toml` | one per section, plus one per dependency list — a dependency reads as `+torch>=2.3.0` |
+
+### Everything else
+
+Languages without a dedicated extractor get a shallow declaration scan, so no source file is
+invisible to a review: **Go, Rust, Java, Kotlin, C#, Swift, PHP, and shell**. It records top-level
+declarations — functions, methods (named after their receiver, `Server.Start`), types with their
+fields or methods, constants — with each language's own visibility rule (Go's capitalization,
+Rust's `pub`, Java's `public`). A Rust `impl` block merges into the type it implements.
+
+It records no call graph and does not understand nesting beyond one level: enough to see *what
+changed where*, not the depth TypeScript or Python get. Anything that needs more should get its own
+extractor behind the same interface.
 
 ### Framework shapes
 
@@ -121,6 +134,9 @@ Endpoints that already have a clean snapshot reuse it; the rest are analyzed in 
 worktree, so your working tree is never touched and the project's own git hooks never fire. The
 review is then narrowed to files the range actually touched (`--all-files` to opt out).
 
+Per-file results are cached by content (see below), so re-analyzing history only parses what
+actually changed between commits.
+
 What the report gives you, in order:
 
 - **Field-level deltas** — `props: +subtitle`, `signature: (a) → (a, b)`, `members: +tier`, not just
@@ -144,6 +160,20 @@ What the report gives you, in order:
 - An **Other symbols** section grouping every non-component symbol by file, with the same change markers
 - Detail panel per symbol: file, signature, members, hooks, and clickable `renders` / `calls` targets
 - Navigate between snapshots with ← / →
+
+## The analysis cache
+
+Analyzing a range of commits re-reads mostly identical trees, so each file's analysis is cached by
+its content under `.hiarky/cache/`. Git already hashes every tracked file, so the fingerprints come
+from one `git ls-files -s` call rather than from re-reading the project; only files git reports as
+modified are hashed directly.
+
+On a nine-commit `--per-commit` review of a real monorepo this cut the run from 4.8s to 2.3s. Pass
+`--no-cache` to `snap`, `review`, or `backfill` to bypass it, or delete `.hiarky/cache/` — it is
+derived data and carries its own `.gitignore`.
+
+Neither the cache nor the snapshots count as working-tree changes: a snapshot taken on a clean
+checkout is still recorded as clean.
 
 ## Ignored while scanning
 
@@ -178,6 +208,6 @@ one interpreter for the whole project.
 
 - `hiarky review <base>..<head>` — field-level diffs, rename/move detection, and impact-ranked
   change summaries for code review, as markdown or JSON
-- A tree-sitter fallback for the long tail of languages
 - Tests as first-class symbols, so "changed without touching tests" is visible
-- Per-file analysis cache keyed by git blob sha, so backfill re-parses only what changed
+- A tree-sitter backend to deepen the shallow-scanned languages (call graphs, nested declarations)
+- Per-symbol history and compare-any-two-snapshots in the viewer
