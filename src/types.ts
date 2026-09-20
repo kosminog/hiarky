@@ -1,5 +1,5 @@
 /** Source language of a symbol, derived from the extractor that produced it. */
-export type Lang = 'js' | 'jsx' | 'ts' | 'tsx';
+export type Lang = 'js' | 'jsx' | 'ts' | 'tsx' | 'prisma' | 'sql' | 'json' | 'yaml' | 'env';
 
 /**
  * What a symbol is. Kept deliberately coarse: extractors for other languages
@@ -12,10 +12,23 @@ export type SymbolKind =
   | 'class'
   | 'method'
   | 'type'
-  | 'const';
+  | 'const'
+  /** An HTTP-addressable entry point: a Next.js page or route handler */
+  | 'route'
+  /** One tRPC procedure on a router */
+  | 'procedure'
+  /** A database model or table */
+  | 'model'
+  /** A database migration */
+  | 'migration'
+  /** A block of project configuration: scripts, dependencies, env keys */
+  | 'config';
+
+/** Kinds that describe declared data or configuration rather than code. */
+export const DECLARATIVE_KINDS: SymbolKind[] = ['model', 'migration', 'config'];
 
 /** How one symbol depends on another. */
-export type EdgeKind = 'renders' | 'calls' | 'extends';
+export type EdgeKind = 'renders' | 'calls' | 'extends' | 'references';
 
 export interface HookUsage {
   /** Hook function name, e.g. "useState", "useCustomThing" */
@@ -46,6 +59,8 @@ export interface SymbolInfo {
   role?: string[];
   /** Normalized parameter/return text for functions */
   signature?: string;
+  /** URL this symbol serves, for routes: "/dashboard/:id" or "GET /api/health" */
+  route?: string;
   /** Props, type members, class members — whatever this symbol exposes */
   members?: string[];
   /** React facet: hooks called in the body */
@@ -53,6 +68,14 @@ export interface SymbolInfo {
   edges: Edge[];
   /** Hash of the declaration's source, for move/rename detection */
   bodyHash: string;
+}
+
+/**
+ * Kinds that sit in the render tree. A Next.js page is recorded as a route,
+ * but it still renders components and still belongs at the top of the tree.
+ */
+export function isRenderable(kind: SymbolKind): boolean {
+  return kind === 'component' || kind === 'route';
 }
 
 /** Edges of one kind, in declaration order. */

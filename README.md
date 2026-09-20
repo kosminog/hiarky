@@ -1,8 +1,8 @@
 # hiarky
 
-Track what your project's code declares — components, functions, classes, types, constants — and how it changes over time.
+Track what your project declares — components, routes, API procedures, database models, migrations, config — and how it changes over time.
 
-`hiarky snap` statically analyzes your source (JS/JSX/TS/TSX) and records every module-scope symbol, with its dependencies, as a YAML snapshot in `.hiarky/snapshots/`. `hiarky view` generates a self-contained HTML viewer to browse and compare snapshots across time (and commits).
+`hiarky snap` statically analyzes your project and records every module-scope symbol, with its dependencies, as a YAML snapshot in `.hiarky/snapshots/`. `hiarky view` generates a self-contained HTML viewer to browse and compare snapshots across time (and commits).
 
 React components are a first-class symbol kind — the viewer still shows the component tree — but they are no longer the only thing recorded, so changes to server code, types, and constants show up too.
 
@@ -44,16 +44,41 @@ Every module-scope declaration becomes a **symbol** with a stable id (`<file>#<n
 
 | Field | What it holds |
 | --- | --- |
-| `kind` | `component`, `function`, `class`, `type`, or `const` |
+| `kind` | `component`, `function`, `class`, `type`, `const`, `route`, `procedure`, `model`, `migration`, `config` |
 | `export` | `default`, `named`, or `none` |
 | `signature` | normalized parameters and return type, for functions |
 | `members` | component props, interface/enum members, class members, object-literal keys |
 | `hooks` | every `useX(...)` call, with the bound variable name (`useState → count`) |
-| `edges` | `renders` (JSX children), `calls` (project functions and imports), `extends` |
+| `edges` | `renders` (JSX children), `calls` (project functions and imports), `extends`, `references` |
 | `role` | tags such as `client` / `server` (from `"use client"`), `class` for class components |
+| `route` | URL a page or handler serves: `/dashboard/company/:id`, `GET /api/health` |
 | `bodyHash` | hash of the declaration's source, so body-only edits are detected |
 
 Components are recognized as before: function, arrow, `memo`/`forwardRef`-wrapped, and class components. Props come from destructured parameters and TypeScript annotations (inline literals plus same-file interfaces/type aliases); class components use `this.props.x` accesses.
+
+### Beyond JavaScript
+
+Files that are not code still decide how a system behaves, so they are recorded as symbols too:
+
+| File | Symbols |
+| --- | --- |
+| `schema.prisma` | one per model (fields with types, `@@index`/`@@unique`, relations as `references` edges), enum, and datasource/generator block |
+| `prisma/migrations/**/*.sql` | one per migration, with a one-line summary of each statement |
+| `package.json` | `scripts`, `dependencies`, `devDependencies` — a dependency bump shows as `-react@^18 +react@^19` |
+| `.env.example` | variable **names only**, never values |
+| `compose.yaml` | one per service, with its settings |
+
+### Framework shapes
+
+Two patterns are recognized rather than flattened into "a function" and "a const":
+
+- **Next.js App Router** — `app/**/page.tsx` and `route.ts` become `route` symbols carrying the URL
+  they serve. Route groups `(shell)` and parallel slots `@modal` are dropped, `[id]` becomes `:id`,
+  and catch-alls become `*slug`. A page is still the top of its render tree.
+- **tRPC** — `createTRPCRouter({ … })` yields one `procedure` symbol per key, tagged
+  `query`/`mutation` and `protected`/`public`, with the zod input field names as its members. So a
+  procedure gaining a required input reads as `input: +tier`, not as "a const changed". Mounted
+  sub-routers become `references` edges.
 
 **Imports are resolved properly**, so the graph connects in real projects: relative paths, `tsconfig.json` path aliases (`~/*`, jsonc and `extends` chains included), workspace packages (`package.json#workspaces` and `pnpm-workspace.yaml`), and barrel files (`export * from`, `export { X } from`). When a barrel re-exports a third-party package, the edge records that package, not the local alias.
 
@@ -83,9 +108,11 @@ What the report gives you, in order:
   "changed". Long lists are truncated in the report and complete in `--format json`.
 - **Move and rename detection** — a removal and an addition that share a body hash are reported as
   one move. Without this, moving a directory reads as if everything was rewritten.
-- **Impact ranking** — export, kind, and signature changes outrank edge and hook changes, which
-  outrank body-only edits; anything on the public surface is weighted up. Each entry carries the
-  reasons it scored where it did.
+- **Impact ranking** — export, kind, route, and signature changes outrank edge and hook changes,
+  which outrank body-only edits; anything on the public surface is weighted up. Migrations, models,
+  routes, and procedures count as public whatever their file exports, and a new environment
+  variable is weighted above the dependency bumps it sits beside. Each entry carries the reasons it
+  scored where it did.
 - **Grouping that matches how code is read** — brand-new files summarize as one line each, and
   body-only changes collapse into a single closing section.
 
@@ -128,8 +155,6 @@ registered in `src/extractors/index.ts`.
 
 - `hiarky review <base>..<head>` — field-level diffs, rename/move detection, and impact-ranked
   change summaries for code review, as markdown or JSON
-- Declarative extractors (Prisma schema, SQL migrations, `package.json`, `.env.example`) and
-  framework recognizers (Next.js routes, tRPC procedures)
 - Python extractor, then a tree-sitter fallback for the long tail
 - Tests as first-class symbols, so "changed without touching tests" is visible
 - Per-file analysis cache keyed by git blob sha, so backfill re-parses only what changed

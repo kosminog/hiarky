@@ -195,3 +195,73 @@ describe('review scope', () => {
     expect(reviewSnapshots(prev, next).newFiles).toEqual([]);
   });
 });
+
+describe('ranking declarative and framework symbols', () => {
+  const symbolOf = (over: Parameters<typeof makeSymbol>[0]) => makeSymbol(over);
+
+  it('ranks a new migration above an ordinary new function', () => {
+    const prev = makeSnapshot([]);
+    const next = makeSnapshot([
+      symbolOf({ id: 'prisma/migrations/x/migration.sql#x', kind: 'migration', export: 'none' }),
+      symbolOf({ id: 'src/util.ts#helper', kind: 'function' }),
+    ]);
+    const { changes } = reviewSnapshots(prev, next);
+    expect(changes[0].id).toBe('prisma/migrations/x/migration.sql#x');
+    expect(changes[0].reasons).toContain('database migration');
+    expect(changes[0].impact).toBeGreaterThan(changes[1].impact);
+  });
+
+  it('treats a model as public even though nothing exports it', () => {
+    const prev = makeSnapshot([
+      symbolOf({ id: 's.prisma#Company', kind: 'model', export: 'none', members: ['id: String'] }),
+    ]);
+    const next = makeSnapshot([
+      symbolOf({
+        id: 's.prisma#Company',
+        kind: 'model',
+        export: 'none',
+        members: ['id: String', 'tier: Int'],
+      }),
+    ]);
+    const { changes, surfaceFiles } = reviewSnapshots(prev, next);
+    expect(changes[0].reasons).toContain('on the public surface');
+    expect(changes[0].reasons).toContain('fields changed');
+    expect(surfaceFiles).toEqual(['s.prisma']);
+  });
+
+  it('ranks a new environment variable above a dependency bump', () => {
+    const prev = makeSnapshot([
+      symbolOf({ id: '.env.example#env', kind: 'config', role: ['env'], members: ['A'] }),
+      symbolOf({ id: 'package.json#dependencies', kind: 'config', members: ['react@^18.0.0'] }),
+    ]);
+    const next = makeSnapshot([
+      symbolOf({ id: '.env.example#env', kind: 'config', role: ['env'], members: ['A', 'B'] }),
+      symbolOf({ id: 'package.json#dependencies', kind: 'config', members: ['react@^19.0.0'] }),
+    ]);
+    const { changes } = reviewSnapshots(prev, next);
+    expect(changes[0].id).toBe('.env.example#env');
+    expect(changes[0].impact).toBeGreaterThan(changes[1].impact);
+  });
+
+  it('treats a changed route path as a break', () => {
+    const prev = makeSnapshot([
+      symbolOf({ id: 'src/app/old/page.tsx#P', kind: 'route', route: '/old', bodyHash: 'same' }),
+    ]);
+    const next = makeSnapshot([
+      symbolOf({ id: 'src/app/new/page.tsx#P', kind: 'route', route: '/new', bodyHash: 'same' }),
+    ]);
+    const { changes } = reviewSnapshots(prev, next);
+    // The body is identical, so it reads as a move that changed its URL
+    expect(changes[0].kind).toBe('moved');
+    expect(changes[0].deltas).toContainEqual({ field: 'route', from: '/old', to: '/new' });
+  });
+
+  it('shows what a new procedure accepts', () => {
+    const next = makeSnapshot([
+      symbolOf({ id: 'src/r.ts#r.setTier', kind: 'procedure', members: ['ids', 'tier'] }),
+    ]);
+    const { changes } = reviewSnapshots(makeSnapshot([]), next);
+    expect(changes[0].members).toEqual(['ids', 'tier']);
+    expect(changes[0].reasons).toContain('API procedure');
+  });
+});

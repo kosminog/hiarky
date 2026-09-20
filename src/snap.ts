@@ -8,10 +8,18 @@ import { extractorGlobs } from './extractors';
 import { loadResolverContext } from './modules';
 import { findProjectRoot, listGitFiles, readGitInfo, readProjectName } from './project';
 import { linkSymbols } from './resolve';
-import { FileAnalysis, GitInfo, Snapshot, SNAPSHOT_VERSION, SymbolInfo } from './types';
+import {
+  FileAnalysis,
+  GitInfo,
+  isRenderable,
+  Snapshot,
+  SNAPSHOT_VERSION,
+  SymbolInfo,
+} from './types';
 
 const IGNORE = [
   '**/node_modules/**',
+  '**/.git/**',
   '**/.hiarky/**',
   '**/dist/**',
   '**/build/**',
@@ -42,12 +50,18 @@ export interface ProjectAnalysis {
 }
 
 export function componentsOf(symbols: SymbolInfo[]): SymbolInfo[] {
-  return symbols.filter((s) => s.kind === 'component');
+  return symbols.filter((s) => isRenderable(s.kind));
 }
 
 /** Scan and analyze a project directory. Pure: no snapshot is written. */
 export async function analyzeProject(root: string): Promise<ProjectAnalysis> {
-  const globbed = await fg(extractorGlobs(), { cwd: root, ignore: IGNORE, absolute: false });
+  // dot: true so `.env.example` is visible; `.git` is excluded above
+  const globbed = await fg(extractorGlobs(), {
+    cwd: root,
+    ignore: IGNORE,
+    absolute: false,
+    dot: true,
+  });
   // In a git repository, ignored files are build output by definition
   const gitFiles = listGitFiles(root);
   const files = (gitFiles ? globbed.filter((f) => gitFiles.has(f)) : globbed).sort();

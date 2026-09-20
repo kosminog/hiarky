@@ -4,6 +4,7 @@ import { createHash } from 'crypto';
 import { parse, ParseResult, ParserPlugin } from '@babel/parser';
 import traverse, { NodePath } from '@babel/traverse';
 import * as t from '@babel/types';
+import { isHttpMethod, routeFileInfo, trpcRouterOf, TrpcRouter } from './frameworks';
 import {
   Edge,
   FileAnalysis,
@@ -361,6 +362,7 @@ export function analyzeJavascript(absFile: string, relFile: string): FileAnalysi
     },
   });
 
+  const routeInfo = routeFileInfo(relFile);
   const importLocals = new Set(imports.map((i) => i.local));
   const topLevelNames = new Set<string>();
 
@@ -409,18 +411,40 @@ export function analyzeJavascript(absFile: string, relFile: string): FileAnalysi
     seen.add(name);
     const exported: SymbolInfo['export'] =
       defaultExportName === name ? 'default' : exportedNames.has(name) ? 'named' : 'none';
+
+    // A Next.js page or handler is addressable by URL; that is what a reviewer
+    // needs to see, not the fact that it happens to be a default export.
+    let finalKind = kind;
+    let route: string | undefined;
+    const fileRoles = [...role];
+    if (routeInfo && exported !== 'none') {
+      if (routeInfo.role === 'page' && exported === 'default') {
+        finalKind = 'route';
+        route = routeInfo.urlPath;
+        fileRoles.push('page');
+      } else if (routeInfo.role === 'route' && isHttpMethod(name)) {
+        finalKind = 'route';
+        route = `${name} ${routeInfo.urlPath}`;
+        fileRoles.push('api');
+      } else {
+        fileRoles.push(routeInfo.role);
+      }
+    }
+
     const sym: SymbolInfo = {
       id: `${relFile}#${name}`,
       name,
       file: relFile,
       lang,
-      kind,
+      kind: finalKind,
       export: exported,
       edges: [],
       bodyHash: hashOf(srcOf(node)),
-      ...(role.length ? { role: [...role] } : {}),
+      ...(route ? { route } : {}),
+      ...(fileRoles.length ? { role: fileRoles } : {}),
       ...extra,
     };
+    if (extra.role && fileRoles.length) sym.role = [...fileRoles, ...extra.role];
     if (sym.members && sym.members.length === 0) delete sym.members;
     if (sym.hooks && sym.hooks.length === 0) delete sym.hooks;
     symbols.push(sym);
@@ -436,6 +460,39 @@ export function analyzeJavascript(absFile: string, relFile: string): FileAnalysi
       hooks,
       edges,
     });
+  };
+
+  /** A tRPC router: one symbol for the router, one per procedure it defines. */
+  const addTrpcRouter = (
+    name: string,
+    declarator: t.VariableDeclarator,
+    declPath: NodePath,
+    router: TrpcRouter
+  ) => {
+    const declaratorPath = pathOf(declPath, declarator) ?? declPath;
+    const routerExport: SymbolInfo['export'] =
+      defaultExportName === name ? 'default' : exportedNames.has(name) ? 'named' : 'none';
+
+    push(name, 'const', declarator, {
+      members: [...router.procedures.map((p) => p.key), ...router.mounts.map((m) => m.key)],
+      // A mounted sub-router is a dependency like any other import
+      edges: router.mounts.map((m) => ({ kind: 'references' as const, name: m.name })),
+    });
+
+    for (const proc of router.procedures) {
+      const procPath = pathOf(declaratorPath, proc.node);
+      const scanned = procPath
+        ? scanBody(procPath, knownCallee)
+        : { hooks: [], edges: [] as Edge[] };
+      const access = proc.builder.replace(/[Pp]rocedure$/, '').toLowerCase();
+      push(`${name}.${proc.key}`, 'procedure', proc.node, {
+        export: routerExport,
+        members: proc.input,
+        role: [...(proc.operation ? [proc.operation] : []), ...(access ? [access] : [])],
+        hooks: scanned.hooks,
+        edges: scanned.edges,
+      });
+    }
   };
 
   const addClass = (name: string, node: t.ClassDeclaration, p: NodePath, declNode: t.Node) => {
@@ -540,6 +597,11 @@ export function analyzeJavascript(absFile: string, relFile: string): FileAnalysi
         if (t.isArrowFunctionExpression(inner) || t.isFunctionExpression(inner)) {
           const fnPath = pathOf(declPath, inner);
           if (fnPath) addFunction(name, inner, fnPath, d);
+          continue;
+        }
+        const router = trpcRouterOf(d.init);
+        if (router && (router.procedures.length || router.mounts.length)) {
+          addTrpcRouter(name, d, declPath, router);
           continue;
         }
         const declaratorPath = pathOf(declPath, d) ?? declPath;

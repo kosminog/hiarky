@@ -1,4 +1,4 @@
-import { EdgeKind, Snapshot, SymbolInfo, SymbolKind } from './types';
+import { DECLARATIVE_KINDS, EdgeKind, Snapshot, SymbolInfo, SymbolKind } from './types';
 
 export type ChangeKind = 'added' | 'removed' | 'changed' | 'moved';
 
@@ -12,6 +12,7 @@ export type DeltaField =
   | 'calls'
   | 'extends'
   | 'hooks'
+  | 'route'
   | 'body';
 
 export interface FieldDelta {
@@ -32,6 +33,12 @@ export interface SymbolChange {
   name: string;
   file: string;
   symbolKind: SymbolKind;
+  /** URL served, for routes */
+  route?: string;
+  /** What the symbol exposes — populated for additions, where there is no delta to show */
+  members?: string[];
+  /** Role tags carried from the symbol, e.g. ["mutation", "protected"] */
+  role?: string[];
   /** Whether the symbol is part of the module's public surface */
   exported: boolean;
   /** Set for moved/renamed symbols: where it used to live */
@@ -65,6 +72,7 @@ const FIELD_WEIGHT: Record<DeltaField, number> = {
   export: 30,
   kind: 30,
   signature: 25,
+  route: 35,
   members: 20,
   role: 10,
   renders: 8,
@@ -74,8 +82,50 @@ const FIELD_WEIGHT: Record<DeltaField, number> = {
   body: 3,
 };
 
+/**
+ * Some kinds matter regardless of export status: a migration changes shared
+ * database state, a route is reachable from outside the codebase entirely.
+ */
+const KIND_BOOST: Partial<Record<SymbolKind, number>> = {
+  migration: 25,
+  model: 15,
+  route: 15,
+  procedure: 10,
+};
+
+/**
+ * Kinds that are public by nature. A model or a route is reachable from
+ * outside its module no matter what its file exports.
+ */
+const PUBLIC_KINDS: SymbolKind[] = ['model', 'migration', 'route', 'procedure'];
+
+/** Can code outside this module see the change? Drives both ranking and surface. */
+function isPublicFacing(change: { exported: boolean; symbolKind: SymbolKind }): boolean {
+  return change.exported || PUBLIC_KINDS.includes(change.symbolKind);
+}
+
+/**
+ * A new environment variable breaks any deploy that does not set it, which
+ * outranks the dependency bumps and script tweaks it sits beside.
+ */
+const ROLE_BOOST: Record<string, number> = { env: 15 };
+
+const KIND_REASON: Partial<Record<SymbolKind, string>> = {
+  migration: 'database migration',
+  model: 'database model',
+  route: 'HTTP route',
+  procedure: 'API procedure',
+};
+
 /** Fields that change what other modules can rely on. */
-const SURFACE_FIELDS: DeltaField[] = ['export', 'kind', 'signature', 'members', 'extends'];
+const SURFACE_FIELDS: DeltaField[] = [
+  'export',
+  'kind',
+  'signature',
+  'members',
+  'extends',
+  'route',
+];
 
 function arrayDelta(field: DeltaField, before: string[], after: string[]): FieldDelta | null {
   const a = new Set(before);
@@ -115,6 +165,7 @@ export function symbolDeltas(before: SymbolInfo, after: SymbolInfo): FieldDelta[
   add(scalarDelta('export', before.export, after.export));
   add(scalarDelta('kind', before.kind, after.kind));
   add(scalarDelta('signature', before.signature ?? '', after.signature ?? ''));
+  add(scalarDelta('route', before.route ?? '', after.route ?? ''));
   add(arrayDelta('members', before.members ?? [], after.members ?? []));
   add(arrayDelta('role', before.role ?? [], after.role ?? []));
   add(arrayDelta('renders', edgeNames(before, 'renders'), edgeNames(after, 'renders')));
@@ -131,8 +182,15 @@ export function symbolDeltas(before: SymbolInfo, after: SymbolInfo): FieldDelta[
 }
 
 function describe(field: DeltaField, symbolKind: SymbolKind): string {
-  if (field === 'members') return symbolKind === 'component' ? 'props changed' : 'members changed';
-  if (field === 'body') return 'body only';
+  if (field === 'members') {
+    if (symbolKind === 'component') return 'props changed';
+    if (symbolKind === 'model') return 'fields changed';
+    if (symbolKind === 'procedure') return 'input changed';
+    return 'members changed';
+  }
+  if (field === 'body') {
+    return DECLARATIVE_KINDS.includes(symbolKind) ? 'definition changed' : 'body only';
+  }
   if (field === 'export') return 'export status changed';
   if (field === 'kind') return 'declaration kind changed';
   return `${field} changed`;
@@ -143,29 +201,35 @@ function scoreChange(change: Omit<SymbolChange, 'impact' | 'reasons'>): {
   reasons: string[];
 } {
   const reasons: string[] = [];
-  const exportedNote = change.exported ? 'exported' : 'internal';
+  const publicFacing = isPublicFacing(change);
+  const visibility = publicFacing ? 'exported' : 'internal';
+  const roleBoost = (change.role ?? []).reduce((sum, r) => sum + (ROLE_BOOST[r] ?? 0), 0);
 
   if (change.kind === 'moved') {
     reasons.push('moved or renamed, body identical');
     return { impact: 5, reasons };
   }
+  const boost = KIND_BOOST[change.symbolKind] ?? 0;
+  const kindReason = KIND_REASON[change.symbolKind];
+  if (kindReason && boost) reasons.push(kindReason);
+
   if (change.kind === 'removed') {
-    reasons.push(`${exportedNote} symbol removed`);
-    return { impact: change.exported ? 40 : 10, reasons };
+    reasons.push(`${visibility} symbol removed`);
+    return { impact: (publicFacing ? 40 : 10) + boost + roleBoost, reasons };
   }
   if (change.kind === 'added') {
-    reasons.push(`${exportedNote} symbol added`);
-    return { impact: change.exported ? 15 : 5, reasons };
+    reasons.push(`${visibility} symbol added`);
+    return { impact: (publicFacing ? 15 : 5) + boost + roleBoost, reasons };
   }
 
-  let score = 0;
+  let score = boost;
   for (const d of change.deltas) {
     score += FIELD_WEIGHT[d.field];
     reasons.push(describe(d.field, change.symbolKind));
   }
-  // The same edit matters more when other modules can see it
-  score = change.exported ? score * 1.5 : score * 0.5;
-  if (change.exported) reasons.push('on the public surface');
+  // The same edit matters more when other code can see it
+  score = score * (publicFacing ? 1.5 : 0.5) + roleBoost;
+  if (publicFacing) reasons.push('on the public surface');
   return { impact: Math.round(score), reasons };
 }
 
@@ -251,6 +315,8 @@ export function reviewSnapshots(
         name: s.name,
         file: s.file,
         symbolKind: s.kind,
+        ...(s.route ? { route: s.route } : {}),
+        ...(s.role?.length ? { role: s.role } : {}),
         exported: s.export !== 'none',
         deltas,
       })
@@ -270,6 +336,8 @@ export function reviewSnapshots(
         name: to.name,
         file: to.file,
         symbolKind: to.kind,
+        ...(to.route ? { route: to.route } : {}),
+        ...(to.role?.length ? { role: to.role } : {}),
         exported: to.export !== 'none',
         previousId: from.id,
         deltas: symbolDeltas(from, to),
@@ -284,6 +352,9 @@ export function reviewSnapshots(
         name: s.name,
         file: s.file,
         symbolKind: s.kind,
+        ...(s.route ? { route: s.route } : {}),
+        ...(s.role?.length ? { role: s.role } : {}),
+        ...(s.members?.length ? { members: s.members } : {}),
         exported: s.export !== 'none',
         deltas: [],
       })
@@ -297,6 +368,8 @@ export function reviewSnapshots(
         name: s.name,
         file: s.file,
         symbolKind: s.kind,
+        ...(s.route ? { route: s.route } : {}),
+        ...(s.role?.length ? { role: s.role } : {}),
         exported: s.export !== 'none',
         deltas: [],
       })
@@ -319,7 +392,7 @@ export function reviewSnapshots(
       changes
         .filter(
           (c) =>
-            c.exported &&
+            isPublicFacing(c) &&
             (c.kind === 'added' ||
               c.kind === 'removed' ||
               c.deltas.some((d) => SURFACE_FIELDS.includes(d.field)))

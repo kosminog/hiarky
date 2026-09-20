@@ -151,7 +151,8 @@ const byId = (snap) => {
   return m;
 };
 
-const componentsOf = (snap) => snap.symbols.filter(s => s.kind === 'component');
+// Routes render components too, so they head the tree alongside components
+const componentsOf = (snap) => snap.symbols.filter(s => s.kind === 'component' || s.kind === 'route');
 const rendersOf = (sym) => (sym.edges || []).filter(e => e.kind === 'renders');
 const callsOf = (sym) => (sym.edges || []).filter(e => e.kind === 'calls');
 
@@ -290,7 +291,7 @@ function renderOthers() {
   const diff = diffWithPrev(current);
   const box = document.getElementById('others');
   box.textContent = '';
-  const others = snap.symbols.filter(s => s.kind !== 'component');
+  const others = snap.symbols.filter(s => s.kind !== 'component' && s.kind !== 'route');
   if (others.length === 0) return;
 
   const open = !collapsed.has('__others__');
@@ -351,6 +352,7 @@ function renderDetail() {
       el('span', { class: 'tag' }, comp.export === 'none' ? 'not exported' : comp.export + ' export'),
       ...(comp.role || []).map(r => el('span', { class: 'tag' }, r))
     ),
+    comp.route ? el('div', { class: 'signature' }, comp.route) : null,
     comp.signature ? el('div', { class: 'signature' }, comp.signature) : null
   );
 

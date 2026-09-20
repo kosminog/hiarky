@@ -1,5 +1,5 @@
 import { loadResolverContext, ResolverContext, resolveSpecifier } from './modules';
-import { FileAnalysis, SymbolInfo } from './types';
+import { FileAnalysis, isRenderable, SymbolInfo } from './types';
 
 const MAX_BARREL_DEPTH = 8;
 
@@ -118,7 +118,7 @@ export function linkSymbols(
 
   const symbols = analyses.flatMap((a) => a.symbols).sort((x, y) => x.id.localeCompare(y.id));
   const roots = symbols
-    .filter((s) => s.kind === 'component' && !rendered.has(s.id))
+    .filter((s) => isRenderable(s.kind) && !rendered.has(s.id))
     .map((s) => s.id);
   return { symbols, roots };
 }

@@ -1,5 +1,5 @@
 import { FieldDelta, Review, SymbolChange } from './review';
-import { SymbolKind } from './types';
+import { DECLARATIVE_KINDS, SymbolKind } from './types';
 
 export interface ReportContext {
   /** Label for the earlier side, e.g. a short sha or a timestamp */
@@ -25,7 +25,13 @@ const TIERS: Array<{ label: string; min: number }> = [
 ];
 
 function fieldLabel(field: FieldDelta['field'], symbolKind: SymbolKind): string {
-  if (field === 'members') return symbolKind === 'component' ? 'props' : 'members';
+  if (field === 'members') {
+    if (symbolKind === 'component') return 'props';
+    if (symbolKind === 'model') return 'fields';
+    if (symbolKind === 'procedure') return 'input';
+    if (symbolKind === 'migration') return 'statements';
+    return 'members';
+  }
   return field;
 }
 
@@ -36,7 +42,9 @@ function ellipsize(text: string, max: number): string {
 /** One delta as a single line: `props: +subtitle -theme` or `signature: a → b`. */
 export function formatDelta(delta: FieldDelta, symbolKind: SymbolKind): string {
   const label = fieldLabel(delta.field, symbolKind);
-  if (delta.field === 'body') return 'body only';
+  if (delta.field === 'body') {
+    return DECLARATIVE_KINDS.includes(symbolKind) ? 'definition changed' : 'body only';
+  }
   if (delta.from !== undefined || delta.to !== undefined) {
     const from = ellipsize(delta.from || '(none)', MAX_SIGNATURE);
     const to = ellipsize(delta.to || '(none)', MAX_SIGNATURE);
@@ -55,12 +63,28 @@ export function formatDelta(delta: FieldDelta, symbolKind: SymbolKind): string {
   return `${label}: ${parts.join(' ')}`;
 }
 
+/** For an addition there is no delta to print, so show what it exposes. */
+function addedMembersLine(change: SymbolChange): string | null {
+  if (change.kind !== 'added' || !change.members?.length) return null;
+  const label = fieldLabel('members', change.symbolKind);
+  const shown = change.members.slice(0, MAX_ENTRIES).join(', ');
+  const rest = change.members.length - MAX_ENTRIES;
+  return `${label}: ${shown}${rest > 0 ? ` … (${rest} more)` : ''}`;
+}
+
 function verb(change: SymbolChange): string {
   return change.kind === 'moved' ? 'moved' : change.kind;
 }
 
 function tags(change: SymbolChange): string {
-  return [change.symbolKind, change.exported ? 'exported' : 'internal'].join(' · ');
+  const parts: string[] = [change.symbolKind];
+  if (change.route) parts.push(change.route);
+  if (change.symbolKind === 'procedure' && change.role?.length) parts.push(...change.role);
+  // "exported" means nothing for a schema model or an env file
+  if (!DECLARATIVE_KINDS.includes(change.symbolKind)) {
+    parts.push(change.exported ? 'exported' : 'internal');
+  }
+  return parts.join(' · ');
 }
 
 /** Body-only edits are real but rarely the point; they collapse into one line. */
@@ -69,7 +93,12 @@ function splitBodyOnly(changes: SymbolChange[]): {
   bodyOnly: SymbolChange[];
 } {
   const bodyOnly = changes.filter(
-    (c) => c.kind === 'changed' && c.deltas.length === 1 && c.deltas[0].field === 'body'
+    (c) =>
+      c.kind === 'changed' &&
+      c.deltas.length === 1 &&
+      c.deltas[0].field === 'body' &&
+      // A model or migration definition changing is the finding, not noise
+      !DECLARATIVE_KINDS.includes(c.symbolKind)
   );
   const set = new Set(bodyOnly);
   return {
@@ -87,12 +116,18 @@ function splitNewFiles(
   newFiles: string[]
 ): { rest: SymbolChange[]; perFile: Array<{ file: string; exported: number; total: number }> } {
   const isNew = new Set(newFiles);
-  const inNewFile = changes.filter((c) => c.kind === 'added' && isNew.has(c.file));
-  const set = new Set(inNewFile);
-  const perFile = newFiles.map((file) => {
-    const syms = inNewFile.filter((c) => c.file === file);
-    return { file, exported: syms.filter((c) => c.exported).length, total: syms.length };
-  });
+  // High-impact additions — a migration, a model, a route — are the finding
+  // even when their file is new, so they stay listed individually.
+  const folded = changes.filter(
+    (c) => c.kind === 'added' && isNew.has(c.file) && c.impact < HIGH
+  );
+  const set = new Set(folded);
+  const perFile = newFiles
+    .map((file) => {
+      const syms = folded.filter((c) => c.file === file);
+      return { file, exported: syms.filter((c) => c.exported).length, total: syms.length };
+    })
+    .filter((entry) => entry.total > 0);
   return { rest: changes.filter((c) => !set.has(c)), perFile };
 }
 
@@ -158,6 +193,8 @@ export function renderMarkdown(review: Review, ctx: ReportContext): string {
           ? `\`${c.previousId}\` → \`${c.id}\``
           : `\`${c.file}\``;
       out.push(`- **${c.name}** ${verb(c)} · ${tags(c)} — ${where}`);
+      const added = addedMembersLine(c);
+      if (added) out.push(`  - ${added}`);
       for (const d of c.deltas) {
         if (d.field === 'body' && c.kind !== 'changed') continue;
         out.push(`  - ${formatDelta(d, c.symbolKind)}`);
@@ -214,6 +251,8 @@ export function renderText(review: Review, ctx: ReportContext): string {
       const where =
         c.previousId && c.previousId !== c.id ? `${c.previousId} -> ${c.id}` : c.id;
       out.push(`  ${verb(c).padEnd(8)} ${where}  [${tags(c)}]`);
+      const added = addedMembersLine(c);
+      if (added) out.push(`             ${added}`);
       for (const d of c.deltas) {
         if (d.field === 'body' && c.kind !== 'changed') continue;
         out.push(`             ${formatDelta(d, c.symbolKind)}`);
