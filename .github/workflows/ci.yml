@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The dev toolchain sets this floor, not the package: vitest 5
+        # requires ^22.12 || ^24 || >=26. What consumers need is covered by
+        # the `compat` job below.
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  package:
+    name: pack
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: mkdir -p out && npm pack --pack-destination out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarball
+          path: out/*.tgz
+          retention-days: 7
+
+  compat:
+    # Installs the real tarball on every Node the package claims to support
+    # and drives the CLI, so `engines.node` is a tested claim.
+    name: install (node ${{ matrix.node }})
+    needs: package
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['18', '20', '22', '24']
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: tarball
+          path: tarball
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install the packed CLI into a clean project
+        run: |
+          mkdir -p consumer/src
+          cd consumer
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund ../tarball/*.tgz
+      - name: Run the CLI
+        run: |
+          cd consumer
+          echo 'export function Hello({ name }: { name: string }) { return null }' > src/Hello.tsx
+          ./node_modules/.bin/hiarky --version
+          ./node_modules/.bin/hiarky snap
+          ./node_modules/.bin/hiarky view --no-open
+          test -f .hiarky/view.html
+          ls .hiarky/snapshots/*.snapshot > /dev/null
