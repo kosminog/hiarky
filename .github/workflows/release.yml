@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 jobs:
   publish:
@@ -16,9 +17,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          registry-url: https://registry.npmjs.org
 
       - name: Check the tag matches package.json
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           PKG="$(node -p "require('./package.json').version")"
@@ -28,6 +29,15 @@ jobs:
           fi
 
       - run: npm ci
+
+      - name: Environment
+        run: |
+          echo "npm  $(npm -v)"
+          echo "node $(node -v)"
+          echo "NODE_AUTH_TOKEN is ${NODE_AUTH_TOKEN:+set}${NODE_AUTH_TOKEN:-unset}"
+          echo "--- .npmrc files ---"
+          cat "$NPM_CONFIG_USERCONFIG" 2>/dev/null || echo "(no user .npmrc)"
+          cat .npmrc 2>/dev/null || echo "(no project .npmrc)"
 
       # prepublishOnly runs typecheck, the test suite, and a clean build.
       - run: npm publish --provenance --access public
