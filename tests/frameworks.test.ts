@@ -2,7 +2,13 @@ import { parse } from '@babel/parser';
 import * as t from '@babel/types';
 import { describe, expect, it } from 'vitest';
 import { analyzeFile } from '../src/analyze';
-import { isHttpMethod, routeFileInfo, trpcRouterOf } from '../src/extractors/frameworks';
+import {
+  isHttpMethod,
+  routeFileInfo,
+  schemaFields,
+  schemaShapeOf,
+  trpcRouterOf,
+} from '../src/extractors/frameworks';
 import { linkSymbols } from '../src/resolve';
 import { cleanup, makeProject, writeFile } from './helpers';
 
@@ -60,15 +66,15 @@ describe('trpcRouterOf', () => {
       ping: publicProcedure.query(() => 'pong'),
     });`);
     expect(router?.procedures).toEqual([
-      { key: 'list', operation: 'query', builder: 'protectedProcedure', input: [], node: expect.anything() },
+      { key: 'list', operation: 'query', builder: 'protectedProcedure', input: null, node: expect.anything() },
       {
         key: 'create',
         operation: 'mutation',
         builder: 'protectedProcedure',
-        input: ['name', 'tier'],
+        input: { parts: ['name', 'tier'] },
         node: expect.anything(),
       },
-      { key: 'ping', operation: 'query', builder: 'publicProcedure', input: [], node: expect.anything() },
+      { key: 'ping', operation: 'query', builder: 'publicProcedure', input: null, node: expect.anything() },
     ]);
   });
 
@@ -90,12 +96,67 @@ describe('trpcRouterOf', () => {
         .input(z.object({ id: z.string() }).refine(() => true))
         .mutation(() => null),
     });`);
-    expect(router?.procedures[0].input).toEqual(['id']);
+    expect(router?.procedures[0].input).toEqual({ parts: ['id'] });
+  });
+
+  it('keeps an imported input schema as a reference', () => {
+    const router = routerFrom(`const r = createTRPCRouter({
+      list: publicProcedure.input(listSchema).query(() => []),
+    });`);
+    expect(router?.procedures[0].input).toEqual({ ref: 'listSchema' });
   });
 
   it('returns null for anything that is not a router', () => {
     expect(routerFrom('const x = makeThing({ a: 1 });')).toBeNull();
     expect(routerFrom('const x = 5;')).toBeNull();
+  });
+});
+
+describe('schemaShapeOf', () => {
+  const shapeOf = (code: string) => {
+    const ast = parse(`(${code})`, { sourceType: 'module', plugins: ['typescript'] });
+    const stmt = ast.program.body[0];
+    if (!t.isExpressionStatement(stmt)) throw new Error('expected an expression');
+    return schemaShapeOf(stmt.expression);
+  };
+  const fieldsOf = (code: string, refs: Record<string, string[]> = {}) => {
+    const shape = shapeOf(code);
+    return shape ? schemaFields(shape, (name) => refs[name] ?? null) : null;
+  };
+
+  it('reads object schemas, including shapes passed by name', () => {
+    expect(fieldsOf('z.object({ a: z.string(), "b": z.number() })')).toEqual(['a', 'b']);
+    expect(fieldsOf('z.strictObject({ a: z.string() }).optional()')).toEqual(['a']);
+    expect(shapeOf('z.object(filterShape)')).toEqual({ parts: [{ ref: 'filterShape' }] });
+  });
+
+  it('follows extend, merge, pick, and omit over referenced schemas', () => {
+    const refs = { base: ['a', 'b', 'c'], other: ['d'] };
+    expect(fieldsOf('base.extend({ x: z.string(), a: z.string() })', refs)).toEqual([
+      'a',
+      'b',
+      'c',
+      'x',
+    ]);
+    expect(fieldsOf('base.merge(other).partial()', refs)).toEqual(['a', 'b', 'c', 'd']);
+    expect(fieldsOf('base.pick({ c: true, a: true })', refs)).toEqual(['a', 'c']);
+    expect(fieldsOf('base.omit({ b: true }).extend(other.shape)', refs)).toEqual(['a', 'c', 'd']);
+    expect(fieldsOf('z.object({ ...base.shape, y: z.number() })', refs)).toEqual([
+      'a',
+      'b',
+      'c',
+      'y',
+    ]);
+  });
+
+  it('contributes nothing for a reference it cannot expand', () => {
+    expect(fieldsOf('external.extend({ x: z.string() })')).toEqual(['x']);
+  });
+
+  it('returns null for expressions that are not object schemas', () => {
+    expect(shapeOf('z.string().min(1)')).toBeNull();
+    expect(shapeOf('makeSchema()')).toBeNull();
+    expect(shapeOf('base.pick(["a"])')).toBeNull();
   });
 });
 

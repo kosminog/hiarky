@@ -71,6 +71,17 @@ export interface Edge {
   external?: string;
 }
 
+/**
+ * A zod object schema as written: its own fields, the schemas it builds on,
+ * and any pick/omit applied. Fields in `parts` keep declaration order; a
+ * nested shape contributes its fields at that position.
+ */
+export type SchemaShape =
+  | { ref: string }
+  | { parts: Array<string | SchemaShape> }
+  | { pick: string[]; of: SchemaShape }
+  | { omit: string[]; of: SchemaShape };
+
 export interface SymbolInfo {
   /** Stable id: "<relative file>#<symbol name>" */
   id: string;
@@ -87,6 +98,11 @@ export interface SymbolInfo {
   route?: string;
   /** Props, type members, class members — whatever this symbol exposes */
   members?: string[];
+  /**
+   * Schema whose fields come from other declarations. Set by the extractor,
+   * resolved into `members` by the linker, and never written to a snapshot.
+   */
+  schema?: SchemaShape;
   /** React facet: hooks called in the body */
   hooks?: HookUsage[];
   edges: Edge[];

@@ -1,5 +1,6 @@
 import * as path from 'path';
 import * as t from '@babel/types';
+import { SchemaShape } from '../types';
 
 /**
  * Framework-shaped declarations that a plain symbol table would flatten:
@@ -84,8 +85,8 @@ export interface TrpcProcedure {
   operation?: string;
   /** Procedure builder used, e.g. "protectedProcedure" */
   builder: string;
-  /** Field names of the zod input schema */
-  input: string[];
+  /** The zod input schema, when the procedure takes one */
+  input: SchemaShape | null;
   /** The property value node, for hashing and body scanning */
   node: t.Node;
 }
@@ -156,6 +157,154 @@ function zodObjectKeys(node: t.Node): string[] {
   return found ?? [];
 }
 
+/** zod factories that build an object schema from a shape. */
+const OBJECT_FACTORIES = new Set(['object', 'strictObject', 'looseObject']);
+/** Schema methods that return a schema with the same fields. */
+const FIELD_PRESERVING = new Set([
+  'brand',
+  'catch',
+  'deepPartial',
+  'default',
+  'describe',
+  'nullable',
+  'nullish',
+  'optional',
+  'partial',
+  'passthrough',
+  'readonly',
+  'refine',
+  'required',
+  'strict',
+  'strip',
+  'superRefine',
+  'transform',
+]);
+
+/** `a` or `a.b.c`: a name made only of identifiers. */
+function plainName(node: t.Node): string | null {
+  if (t.isIdentifier(node)) return node.name;
+  if (t.isMemberExpression(node) && !node.computed && t.isIdentifier(node.property)) {
+    const head = plainName(node.object);
+    return head ? `${head}.${node.property.name}` : null;
+  }
+  return null;
+}
+
+function keyName(node: t.Node): string | null {
+  if (t.isIdentifier(node)) return node.name;
+  if (t.isStringLiteral(node)) return node.value;
+  return null;
+}
+
+/** The fields of a shape object literal; spreads become nested shapes. */
+function objectShape(obj: t.ObjectExpression): SchemaShape {
+  const parts: Array<string | SchemaShape> = [];
+  for (const p of obj.properties) {
+    if ((t.isObjectProperty(p) || t.isObjectMethod(p)) && !p.computed) {
+      const name = keyName(p.key);
+      if (name) parts.push(name);
+    } else if (t.isSpreadElement(p)) {
+      const spread = schemaShapeOf(p.argument);
+      if (spread) parts.push(spread);
+    }
+  }
+  return { parts };
+}
+
+/** Keys of a `{ a: true, b: true }` mask, as `.pick()` and `.omit()` take. */
+function maskKeys(node: t.Node | undefined): string[] | null {
+  if (!node || !t.isObjectExpression(node)) return null;
+  return node.properties
+    .map((p) => (t.isObjectProperty(p) && !p.computed ? keyName(p.key) : null))
+    .filter((k): k is string => k !== null);
+}
+
+/**
+ * Read a zod object schema expression into a shape: `z.object({ … })`, a
+ * schema or shape referenced by name, and `.extend` / `.merge` / `.pick` /
+ * `.omit` chains over either. Returns null for anything else.
+ */
+export function schemaShapeOf(node: t.Node): SchemaShape | null {
+  if (t.isTSAsExpression(node) || t.isTSSatisfiesExpression(node)) {
+    return schemaShapeOf(node.expression);
+  }
+  const name = plainName(node);
+  if (name) {
+    // `base.shape` stands for base's fields
+    return { ref: name.endsWith('.shape') ? name.slice(0, -'.shape'.length) : name };
+  }
+  if (!t.isCallExpression(node)) return null;
+  const callee = node.callee;
+  if (!t.isMemberExpression(callee) || callee.computed || !t.isIdentifier(callee.property)) {
+    return null;
+  }
+  const method = callee.property.name;
+  const arg = node.arguments[0] as t.Node | undefined;
+
+  // z.object({ … }) / z.object(shape)
+  if (OBJECT_FACTORIES.has(method) && t.isIdentifier(callee.object)) {
+    if (!arg) return null;
+    if (t.isObjectExpression(arg)) return objectShape(arg);
+    // Wrapped, so `z.object(shape)` still reads as a schema rather than an alias
+    const shape = schemaShapeOf(arg);
+    return shape ? { parts: [shape] } : null;
+  }
+
+  const base = schemaShapeOf(callee.object);
+  if (!base) return null;
+  if (FIELD_PRESERVING.has(method)) return base;
+  if (method === 'extend' || method === 'merge') {
+    if (!arg) return null;
+    const added = t.isObjectExpression(arg) ? objectShape(arg) : schemaShapeOf(arg);
+    return added ? { parts: [base, added] } : null;
+  }
+  if (method === 'pick' || method === 'omit') {
+    const keys = maskKeys(arg);
+    if (!keys) return null;
+    return method === 'pick' ? { pick: keys, of: base } : { omit: keys, of: base };
+  }
+  return null;
+}
+
+/** Does this shape take fields from a declaration elsewhere? */
+export function hasSchemaRefs(shape: SchemaShape): boolean {
+  if ('ref' in shape) return true;
+  if ('parts' in shape) return shape.parts.some((p) => typeof p !== 'string' && hasSchemaRefs(p));
+  return hasSchemaRefs(shape.of);
+}
+
+/**
+ * Field names of a shape, in order, with each reference expanded by
+ * `fieldsOfRef`. A reference it cannot expand contributes no fields.
+ */
+export function schemaFields(
+  shape: SchemaShape,
+  fieldsOfRef: (name: string) => string[] | null = () => null
+): string[] {
+  if ('ref' in shape) return fieldsOfRef(shape.ref) ?? [];
+  if ('parts' in shape) {
+    const fields = new Set<string>();
+    for (const part of shape.parts) {
+      if (typeof part === 'string') fields.add(part);
+      else for (const f of schemaFields(part, fieldsOfRef)) fields.add(f);
+    }
+    return [...fields];
+  }
+  const inner = schemaFields(shape.of, fieldsOfRef);
+  const keys = new Set('pick' in shape ? shape.pick : shape.omit);
+  return inner.filter((f) => ('pick' in shape ? keys.has(f) : !keys.has(f)));
+}
+
+/**
+ * A schema declared as a const: `z.object(…)` or a chain that reshapes one.
+ * A bare alias (`const s = other`) or a field-preserving wrapper of one is
+ * not enough to call something a schema.
+ */
+export function declaredSchemaShape(init: t.Node): SchemaShape | null {
+  const shape = schemaShapeOf(init);
+  return shape && !('ref' in shape) ? shape : null;
+}
+
 /** The argument of the `.input(…)` call in a procedure chain. */
 function inputArgument(node: t.Node): t.Node | null {
   let cur: t.Node = node;
@@ -206,7 +355,10 @@ export function trpcRouterOf(init: t.Node): TrpcRouter | null {
       key,
       ...(operation ? { operation } : {}),
       builder: root,
-      input: inputArg ? zodObjectKeys(inputArg) : [],
+      input: inputArg
+        ? // Anything unrecognized falls back to the first z.object inside it
+          schemaShapeOf(inputArg) ?? { parts: zodObjectKeys(inputArg) }
+        : null,
       node: value,
     });
   }

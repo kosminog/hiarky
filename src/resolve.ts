@@ -4,6 +4,7 @@ import {
   ResolverContext,
   resolveSpecifier,
 } from './modules';
+import { schemaFields } from './extractors/frameworks';
 import { FileAnalysis, isRenderable, SymbolInfo } from './types';
 
 const MAX_BARREL_DEPTH = 8;
@@ -148,9 +149,72 @@ export function linkSymbols(
     }
   }
 
+  const resolveFile = (file: string, source: string) =>
+    resolveSpecifier(ctx, file, source, resolveOptionsFor(file));
+  resolveSchemas(analyses, byFileAndName, resolveFile, findExport);
+
   const symbols = analyses.flatMap((a) => a.symbols).sort((x, y) => x.id.localeCompare(y.id));
   const roots = symbols
     .filter((s) => isRenderable(s.kind) && !rendered.has(s.id))
     .map((s) => s.id);
   return { symbols, roots };
+}
+
+/**
+ * Expand schemas built from declarations elsewhere — `.input(listSchema)`,
+ * `filterSchema.extend({ … })`, `z.object(filterShape)` — into the fields
+ * they end up with, following imports and barrels the way edges do.
+ */
+function resolveSchemas(
+  analyses: FileAnalysis[],
+  byFileAndName: Map<string, SymbolInfo>,
+  resolveFile: (fromFile: string, source: string) => string | null,
+  findExport: (file: string, name: string) => ExportTarget
+): void {
+  const importsOf = new Map(
+    analyses.map((a) => [a.file, new Map(a.imports.map((i) => [i.local, i]))])
+  );
+
+  /** The declaration a schema reference names, if it is in the project. */
+  const lookup = (file: string, name: string): SymbolInfo | undefined => {
+    const [head, ...rest] = name.split('.');
+    const imp = importsOf.get(file)?.get(head);
+    if (!imp) {
+      // A property of a local object is not a declaration of its own
+      return rest.length ? undefined : byFileAndName.get(`${file}#${head}`);
+    }
+    // `import * as schemas` makes `schemas.list` an export of that module
+    const wanted = imp.imported === '*' ? rest[0] : imp.imported;
+    if (!wanted || rest.length > (imp.imported === '*' ? 1 : 0)) return undefined;
+    const target = resolveFile(file, imp.source);
+    const found = target ? findExport(target, wanted) : undefined;
+    return found && 'symbol' in found ? found.symbol : undefined;
+  };
+
+  const resolved = new Map<string, string[]>();
+  const inProgress = new Set<string>();
+  const fieldsOf = (sym: SymbolInfo): string[] | null => {
+    const done = resolved.get(sym.id);
+    if (done) return done;
+    if (!sym.schema) return sym.members ?? [];
+    if (inProgress.has(sym.id)) return null; // a cycle expands to nothing
+    inProgress.add(sym.id);
+    const shape = sym.schema;
+    const fields = schemaFields(shape, (name) => {
+      const target = lookup(sym.file, name);
+      return target ? fieldsOf(target) : null;
+    });
+    inProgress.delete(sym.id);
+    resolved.set(sym.id, fields);
+    return fields;
+  };
+
+  const withSchemas = analyses.flatMap((a) => a.symbols.filter((s) => s.schema));
+  for (const sym of withSchemas) fieldsOf(sym);
+  for (const sym of withSchemas) {
+    const fields = resolved.get(sym.id) ?? [];
+    if (fields.length) sym.members = fields;
+    else delete sym.members;
+    delete sym.schema;
+  }
 }

@@ -8,6 +8,11 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- tRPC procedures whose input is a schema declared elsewhere (`.input(listSchema)`) now list its
+  fields. Schemas are followed through imports, barrels and namespace imports, and through
+  `z.object(shape)`, `.extend`, `.merge`, `.pick`, `.omit` and `...base.shape` spreads. Zod object
+  schemas declared as consts list their fields too, so the first review after upgrading reports
+  their members as changed.
 - Next.js route handlers exported under a method alias (`export { handler as GET, handler as POST }`)
   are now recorded as routes, one per method, each referencing the shared handler. Handlers imported
   or re-exported into a `route.ts` (`export { GET } from "…"`) are recorded too.
