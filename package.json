@@ -1,6 +1,6 @@
 {
   "name": "hiarky",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Snapshot what your project declares — components, routes, API procedures, database models, migrations, config — and review how it changes over time",
   "license": "MIT",
   "author": "Kosminog (https://github.com/kosminog)",
@@ -24,8 +24,9 @@
     "node": ">=18"
   },
   "scripts": {
-    "prebuild": "rm -rf dist",
+    "prebuild": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "tsc",
+    "postbuild": "node -e \"require('fs').chmodSync('dist/index.js',0o755)\"",
     "dev": "tsc --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
