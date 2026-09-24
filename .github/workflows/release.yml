@@ -51,4 +51,4 @@ jobs:
           cat "$npmrc" 2>/dev/null || echo "(no npmrc)"
 
       # prepublishOnly runs typecheck, the test suite, and a clean build.
-      - run: npm publish --provenance --access public
+      - run: npm publish --provenance --access public --loglevel verbose
