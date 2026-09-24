@@ -14,6 +14,7 @@ export function buildViewerHtml(snapshots: Snapshot[], projectName: string): str
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>hiarky — ${escapeHtml(projectName)}</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,${encodeURIComponent(FAVICON_SVG)}">
 <style>
   :root {
     --bg: #ffffff; --panel: #f6f7f9; --border: #e2e5ea; --text: #1c2128;
@@ -414,6 +415,34 @@ if (SNAPSHOTS.length === 0) {
 </body>
 </html>`;
 }
+
+/** Copy of assets/icon.svg, inlined so the viewer stays a single file; a test keeps the two in sync. */
+export const FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <title>hiarky</title>
+  <style>
+    .ink { fill: #10312E; stroke: #10312E; }
+    .root { fill: #D63F74; }
+    .new { fill: #1FAE8C; }
+    @media (prefers-color-scheme: dark) {
+      .ink { fill: #D6F2E8; stroke: #D6F2E8; }
+      .root { fill: #FF6B9E; }
+      .new { fill: #4BE3B9; }
+    }
+  </style>
+  <mask id="gaps">
+    <rect width="120" height="120" fill="#fff"/>
+    <circle cx="60" cy="50.5" r="17" fill="#000"/>
+    <circle cx="30" cy="100" r="19" fill="#000"/>
+    <circle cx="90" cy="100" r="19" fill="#000"/>
+    <circle cx="30" cy="20" r="20" fill="#000"/>
+  </mask>
+  <path d="M30 20V100M30 76C30 42 90 42 90 76V100" fill="none" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" mask="url(#gaps)" class="ink" style="fill:none"/>
+  <circle class="ink" cx="60" cy="50.5" r="14" style="stroke:none"/>
+  <circle class="ink" cx="30" cy="100" r="16" style="stroke:none"/>
+  <circle class="new" cx="90" cy="100" r="16"/>
+  <circle class="root" cx="30" cy="20" r="17"/>
+</svg>
+`;
 
 function escapeHtml(s: string): string {
   return s

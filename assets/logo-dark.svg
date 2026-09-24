@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120">
+  <title>hiarky</title>
+  <mask id="gaps">
+    <rect width="120" height="120" fill="#fff"/>
+    <circle cx="60" cy="50.5" r="17" fill="#000"/>
+    <circle cx="30" cy="100" r="19" fill="#000"/>
+    <circle cx="90" cy="100" r="19" fill="#000"/>
+    <circle cx="30" cy="20" r="20" fill="#000"/>
+  </mask>
+  <path d="M30 20V100M30 76C30 42 90 42 90 76V100" fill="none" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" mask="url(#gaps)" stroke="#D6F2E8"/>
+  <circle cx="60" cy="50.5" r="14" fill="#D6F2E8"/>
+  <circle cx="30" cy="100" r="16" fill="#D6F2E8"/>
+  <circle cx="90" cy="100" r="16" fill="#4BE3B9"/>
+  <circle cx="30" cy="20" r="17" fill="#FF6B9E"/>
+</svg>
