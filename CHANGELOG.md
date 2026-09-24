@@ -4,10 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## 0.1.1
+## 0.1.2
 
-No functional changes to the package. Releases now publish through npm trusted publishing (OIDC),
-so CI authenticates without a token and attaches a provenance attestation.
+No functional changes to the CLI.
+
+- Releases now publish through npm trusted publishing (OIDC), so CI authenticates without a token
+  and attaches a provenance attestation.
+- `dist/index.js` gets its executable bit restored after every build, and the build's clean step no
+  longer depends on a Unix shell, so `npm run build` behaves the same on Windows.
+
+0.1.1 was tagged but never published.
 
 ## 0.1.0
 
