@@ -17,6 +17,7 @@ jobs:
         with:
           node-version: "24"
           cache: npm
+          registry-url: https://registry.npmjs.org
 
       - name: Check the tag matches package.json
         if: startsWith(github.ref, 'refs/tags/')
@@ -30,14 +31,24 @@ jobs:
 
       - run: npm ci
 
-      - name: Environment
+      # setup-node's registry-url writes `_authToken=${NODE_AUTH_TOKEN}` into
+      # .npmrc. With no token that resolves to a placeholder or an empty
+      # string, and npm treats *any* _authToken line as "auth is configured"
+      # and skips the OIDC exchange entirely — publishing then fails with
+      # ENEEDAUTH. Removing the line is what lets trusted publishing engage.
+      # See https://github.com/npm/documentation/issues/1960
+      - name: Clear the auth token so OIDC can engage
         run: |
+          npmrc="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
           echo "npm  $(npm -v)"
           echo "node $(node -v)"
-          echo "NODE_AUTH_TOKEN is ${NODE_AUTH_TOKEN:+set}${NODE_AUTH_TOKEN:-unset}"
-          echo "--- .npmrc files ---"
-          cat "$NPM_CONFIG_USERCONFIG" 2>/dev/null || echo "(no user .npmrc)"
-          cat .npmrc 2>/dev/null || echo "(no project .npmrc)"
+          echo "OIDC request URL is ${ACTIONS_ID_TOKEN_REQUEST_URL:+present}${ACTIONS_ID_TOKEN_REQUEST_URL:-MISSING}"
+          echo "npmrc path: $npmrc"
+          echo "--- before ---"
+          cat "$npmrc" 2>/dev/null || echo "(no npmrc)"
+          [ -f "$npmrc" ] && sed -i '/_authToken/d' "$npmrc"
+          echo "--- after ---"
+          cat "$npmrc" 2>/dev/null || echo "(no npmrc)"
 
       # prepublishOnly runs typecheck, the test suite, and a clean build.
       - run: npm publish --provenance --access public
