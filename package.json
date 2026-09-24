@@ -1,6 +1,6 @@
 {
   "name": "hiarky",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Snapshot what your project declares — components, routes, API procedures, database models, migrations, config — and review how it changes over time",
   "license": "MIT",
   "author": "Kosminog (https://github.com/kosminog)",

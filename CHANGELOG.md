@@ -4,6 +4,13 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## 0.1.5
+
+No functional changes to the CLI.
+
+- hiarky has a website at [hiarky.com](https://hiarky.com), with a guide, the project's philosophy
+  and this changelog. The package's homepage on npm now points there.
+
 ## 0.1.4
 
 ### Added
