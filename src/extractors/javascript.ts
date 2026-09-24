@@ -4,7 +4,15 @@ import { createHash } from 'crypto';
 import { parse, ParseResult, ParserPlugin } from '@babel/parser';
 import traverse, { NodePath } from '@babel/traverse';
 import * as t from '@babel/types';
-import { isHttpMethod, routeFileInfo, trpcRouterOf, TrpcRouter } from './frameworks';
+import {
+  declaredSchemaShape,
+  hasSchemaRefs,
+  isHttpMethod,
+  routeFileInfo,
+  schemaFields,
+  trpcRouterOf,
+  TrpcRouter,
+} from './frameworks';
 import { isHarnessCall, testSuitesOf } from './tests';
 import {
   Edge,
@@ -14,6 +22,7 @@ import {
   ImportBinding,
   Lang,
   ReexportBinding,
+  SchemaShape,
   SymbolInfo,
   SymbolKind,
 } from '../types';
@@ -503,6 +512,15 @@ export function analyzeJavascript(absFile: string, relFile: string): FileAnalysi
     });
   };
 
+  /**
+   * Fields known from this file alone, plus the shape itself when some come
+   * from elsewhere, for the linker to finish.
+   */
+  const schemaMembers = (shape: SchemaShape): Partial<SymbolInfo> => ({
+    members: schemaFields(shape),
+    ...(hasSchemaRefs(shape) ? { schema: shape } : {}),
+  });
+
   /** A tRPC router: one symbol for the router, one per procedure it defines. */
   const addTrpcRouter = (
     name: string,
@@ -528,7 +546,7 @@ export function analyzeJavascript(absFile: string, relFile: string): FileAnalysi
       const access = proc.builder.replace(/[Pp]rocedure$/, '').toLowerCase();
       push(`${name}.${proc.key}`, 'procedure', proc.node, {
         export: routerExport,
-        members: proc.input,
+        ...(proc.input ? schemaMembers(proc.input) : {}),
         role: [...(proc.operation ? [proc.operation] : []), ...(access ? [access] : [])],
         hooks: scanned.hooks,
         edges: scanned.edges,
@@ -647,6 +665,11 @@ export function analyzeJavascript(absFile: string, relFile: string): FileAnalysi
         }
         const declaratorPath = pathOf(declPath, d) ?? declPath;
         const { hooks, edges } = scanBody(declaratorPath, knownCallee);
+        const schema = declaredSchemaShape(d.init);
+        if (schema) {
+          push(name, 'const', d, { ...schemaMembers(schema), hooks, edges });
+          continue;
+        }
         const members = t.isObjectExpression(inner)
           ? inner.properties
               .map((pr) =>

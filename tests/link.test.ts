@@ -117,3 +117,100 @@ describe('renamed exports', () => {
     }
   });
 });
+
+describe('procedure input schemas', () => {
+  const FILES: Record<string, string> = {
+    'src/lib/filters.ts': `import { z } from "zod";
+const filterShape = {
+  datasetId: z.string(),
+  from: z.string().optional(),
+};
+export const filterSchema = z.object(filterShape);
+export const pagingSchema = z.object({ limit: z.number(), cursor: z.string() });
+`,
+    'src/lib/index.ts': 'export * from "./filters";\n',
+    'src/server/queries.ts': `import { z } from "zod";
+import { filterSchema, pagingSchema } from "../lib";
+export const listSchema = filterSchema.merge(pagingSchema);
+export const detailSchema = filterSchema.extend({ id: z.string() }).omit({ from: true });
+`,
+    'src/server/router.ts': `import { z } from "zod";
+import * as queries from "./queries";
+import { listSchema } from "./queries";
+import { filterSchema } from "../lib";
+import { remoteSchema } from "some-package";
+import { createTRPCRouter, publicProcedure } from "./trpc";
+
+const localSchema = filterSchema.pick({ datasetId: true });
+
+export const dataRouter = createTRPCRouter({
+  list: publicProcedure.input(listSchema).query(() => []),
+  detail: publicProcedure.input(queries.detailSchema).query(() => null),
+  local: publicProcedure.input(localSchema).query(() => null),
+  extended: publicProcedure.input(listSchema.extend({ sort: z.string() })).query(() => null),
+  remote: publicProcedure.input(remoteSchema).query(() => null),
+  inline: publicProcedure.input(z.object({ q: z.string() })).query(() => null),
+});
+`,
+  };
+
+  let linked: SymbolInfo[];
+  beforeAll(() => {
+    const root = makeProject(FILES);
+    try {
+      const analyses = Object.keys(FILES).map((f) => analyzeFile(path.join(root, f), f));
+      linked = linkSymbols(root, analyses).symbols;
+    } finally {
+      cleanup(root);
+    }
+  });
+  const membersOf = (name: string) => linked.find((s) => s.name === name)?.members;
+
+  it('expands schemas imported directly, through a barrel, or by namespace', () => {
+    expect(membersOf('dataRouter.list')).toEqual(['datasetId', 'from', 'limit', 'cursor']);
+    expect(membersOf('dataRouter.detail')).toEqual(['datasetId', 'id']);
+  });
+
+  it('expands same-file schemas and chains applied at the call site', () => {
+    expect(membersOf('dataRouter.local')).toEqual(['datasetId']);
+    expect(membersOf('dataRouter.extended')).toEqual([
+      'datasetId',
+      'from',
+      'limit',
+      'cursor',
+      'sort',
+    ]);
+    expect(membersOf('dataRouter.inline')).toEqual(['q']);
+  });
+
+  it('records the fields of the schema declarations themselves', () => {
+    expect(membersOf('filterSchema')).toEqual(['datasetId', 'from']);
+    expect(membersOf('listSchema')).toEqual(['datasetId', 'from', 'limit', 'cursor']);
+  });
+
+  it('leaves schemas from outside the project without fields', () => {
+    expect(membersOf('dataRouter.remote')).toBeUndefined();
+  });
+
+  it('removes the unresolved shapes once linked', () => {
+    expect(linked.filter((s) => s.schema)).toEqual([]);
+  });
+});
+
+describe('schema cycles', () => {
+  it('terminates on schemas that extend each other', () => {
+    const root = makeProject({
+      'src/a.ts': 'import { b } from "./b";\nexport const a = b.extend({ x: z.string() });\n',
+      'src/b.ts': 'import { a } from "./a";\nexport const b = a.extend({ y: z.string() });\n',
+    });
+    try {
+      const files = ['src/a.ts', 'src/b.ts'];
+      const analyses = files.map((f) => analyzeFile(path.join(root, f), f));
+      const { symbols } = linkSymbols(root, analyses);
+      expect(symbols.find((s) => s.name === 'a')?.members).toEqual(['y', 'x']);
+      expect(symbols.find((s) => s.name === 'b')?.members).toEqual(['y']);
+    } finally {
+      cleanup(root);
+    }
+  });
+});
