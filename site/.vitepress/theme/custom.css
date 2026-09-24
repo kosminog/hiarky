@@ -1,0 +1,19 @@
+/* Brand colours taken from the logo: ink #10312E, root #D63F74, new #1FAE8C. */
+:root {
+  --vp-c-brand-1: #148a6f;
+  --vp-c-brand-2: #1a9e80;
+  --vp-c-brand-3: #1fae8c;
+  --vp-c-brand-soft: rgba(31, 174, 140, 0.14);
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: linear-gradient(120deg, #d63f74 10%, #1fae8c 90%);
+  --vp-home-hero-image-background-image: linear-gradient(135deg, #d63f7433 30%, #1fae8c33 70%);
+  --vp-home-hero-image-filter: blur(56px);
+}
+
+.dark {
+  --vp-c-brand-1: #4fd1b0;
+  --vp-c-brand-2: #36c29f;
+  --vp-c-brand-3: #1fae8c;
+  --vp-c-brand-soft: rgba(79, 209, 176, 0.16);
+}
