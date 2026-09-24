@@ -40,15 +40,8 @@ jobs:
       - name: Clear the auth token so OIDC can engage
         run: |
           npmrc="${NPM_CONFIG_USERCONFIG:-$HOME/.npmrc}"
-          echo "npm  $(npm -v)"
-          echo "node $(node -v)"
-          echo "OIDC request URL is ${ACTIONS_ID_TOKEN_REQUEST_URL:+present}${ACTIONS_ID_TOKEN_REQUEST_URL:-MISSING}"
-          echo "npmrc path: $npmrc"
-          echo "--- before ---"
-          cat "$npmrc" 2>/dev/null || echo "(no npmrc)"
           [ -f "$npmrc" ] && sed -i '/_authToken/d' "$npmrc"
-          echo "--- after ---"
-          cat "$npmrc" 2>/dev/null || echo "(no npmrc)"
+          echo "OIDC request URL is ${ACTIONS_ID_TOKEN_REQUEST_URL:+present}${ACTIONS_ID_TOKEN_REQUEST_URL:-MISSING}"
 
       # prepublishOnly runs typecheck, the test suite, and a clean build.
-      - run: npm publish --provenance --access public --loglevel verbose
+      - run: npm publish --provenance --access public
