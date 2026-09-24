@@ -1,6 +1,8 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { JSDOM } from 'jsdom';
 import { describe, expect, it } from 'vitest';
-import { buildViewerHtml } from '../src/viewer';
+import { buildViewerHtml, FAVICON_SVG } from '../src/viewer';
 import { Snapshot } from '../src/types';
 import { makeComponent, makeSnapshot } from './helpers';
 
@@ -125,5 +127,18 @@ describe('viewer safety', () => {
   it('shows an empty state when there are no snapshots', () => {
     const { doc } = render([]);
     expect(doc.querySelector('main')?.textContent).toContain('No snapshots yet');
+  });
+});
+
+describe('viewer favicon', () => {
+  it('embeds the logo as an SVG data URI', () => {
+    const { doc } = render([snapA]);
+    const href = doc.querySelector('link[rel="icon"]')?.getAttribute('href') ?? '';
+    expect(href.startsWith('data:image/svg+xml,')).toBe(true);
+    expect(decodeURIComponent(href.slice('data:image/svg+xml,'.length))).toBe(FAVICON_SVG);
+  });
+
+  it('matches assets/icon.svg', () => {
+    expect(FAVICON_SVG).toBe(readFileSync(join(__dirname, '..', 'assets', 'icon.svg'), 'utf8'));
   });
 });

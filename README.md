@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+  <img src="assets/logo.svg" alt="hiarky logo" width="72" height="72">
+</picture>
+
 # hiarky
 
 [![CI](https://github.com/kosminog/hiarky/actions/workflows/ci.yml/badge.svg)](https://github.com/kosminog/hiarky/actions/workflows/ci.yml)
