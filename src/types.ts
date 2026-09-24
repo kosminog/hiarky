@@ -128,11 +128,21 @@ export interface ReexportBinding {
   source: string;
 }
 
+/** `export { handler as GET }` — a local declaration exposed under another name. */
+export interface ExportAlias {
+  /** Name this module exposes */
+  exported: string;
+  /** Local identifier it is bound to */
+  local: string;
+}
+
 export interface FileAnalysis {
   file: string;
   symbols: SymbolInfo[];
   imports: ImportBinding[];
   reexports: ReexportBinding[];
+  /** Local declarations exported under a different name */
+  exportAliases?: ExportAlias[];
   parseError?: string;
 }
 

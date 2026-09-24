@@ -3,6 +3,7 @@ import * as t from '@babel/types';
 import { describe, expect, it } from 'vitest';
 import { analyzeFile } from '../src/analyze';
 import { isHttpMethod, routeFileInfo, trpcRouterOf } from '../src/extractors/frameworks';
+import { linkSymbols } from '../src/resolve';
 import { cleanup, makeProject, writeFile } from './helpers';
 
 describe('routeFileInfo', () => {
@@ -159,6 +160,89 @@ export const companyRouter = createTRPCRouter({
       // Procedures inherit the router's visibility
       expect(updateTier.export).toBe('named');
       expect(symbols[0].members).toEqual(['list', 'updateTier']);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  it('records a handler exported under method aliases as one route per method', () => {
+    const root = makeProject({});
+    try {
+      const rel = 'src/app/api/trpc/[trpc]/route.ts';
+      writeFile(
+        root,
+        rel,
+        `import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
+
+const handler = (req: Request) => fetchRequestHandler({ endpoint: "/api/trpc", req });
+
+export { handler as GET, handler as POST };
+`
+      );
+      const analysis = analyzeFile(`${root}/${rel}`, rel);
+      const byName = new Map(analysis.symbols.map((s) => [s.name, s]));
+      expect(byName.get('GET')).toMatchObject({
+        kind: 'route',
+        route: 'GET /api/trpc/:trpc',
+        export: 'named',
+        edges: [{ kind: 'references', name: 'handler' }],
+      });
+      expect(byName.get('POST')).toMatchObject({ kind: 'route', route: 'POST /api/trpc/:trpc' });
+      expect(byName.get('GET')?.role).toContain('api');
+      // The routes share the handler's body, so editing it changes both
+      expect(byName.get('GET')?.bodyHash).toBe(byName.get('handler')?.bodyHash);
+      expect(analysis.exportAliases).toEqual([
+        { exported: 'GET', local: 'handler' },
+        { exported: 'POST', local: 'handler' },
+      ]);
+
+      const { symbols } = linkSymbols(root, [analysis]);
+      const get = symbols.find((s) => s.name === 'GET');
+      expect(get?.edges[0].id).toBe(`${rel}#handler`);
+    } finally {
+      cleanup(root);
+    }
+  });
+
+  it('records handlers imported or re-exported into a route file', () => {
+    const root = makeProject({});
+    try {
+      writeFile(
+        root,
+        'src/server/auth.ts',
+        'export function GET() {\n  return new Response();\n}\nexport function authPost() {\n  return new Response();\n}\n'
+      );
+      writeFile(
+        root,
+        'src/app/api/auth/route.ts',
+        'export { GET, authPost as POST } from "../../../server/auth";\n'
+      );
+      writeFile(
+        root,
+        'src/app/api/session/route.ts',
+        'import { GET } from "../../../server/auth";\nexport { GET };\n'
+      );
+      const files = ['src/server/auth.ts', 'src/app/api/auth/route.ts', 'src/app/api/session/route.ts'];
+      const analyses = files.map((f) => analyzeFile(`${root}/${f}`, f));
+      const { symbols } = linkSymbols(root, analyses);
+      const route = (file: string, name: string) =>
+        symbols.find((s) => s.file === file && s.name === name);
+
+      expect(route('src/app/api/auth/route.ts', 'GET')).toMatchObject({
+        kind: 'route',
+        route: 'GET /api/auth',
+      });
+      expect(route('src/app/api/auth/route.ts', 'GET')?.edges[0].id).toBe('src/server/auth.ts#GET');
+      expect(route('src/app/api/auth/route.ts', 'POST')?.edges[0].id).toBe(
+        'src/server/auth.ts#authPost'
+      );
+      expect(route('src/app/api/session/route.ts', 'GET')).toMatchObject({
+        kind: 'route',
+        route: 'GET /api/session',
+      });
+      expect(route('src/app/api/session/route.ts', 'GET')?.edges[0].id).toBe(
+        'src/server/auth.ts#GET'
+      );
     } finally {
       cleanup(root);
     }

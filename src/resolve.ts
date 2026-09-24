@@ -69,6 +69,22 @@ export function linkSymbols(
     const analysis = analysisOfFile.get(file);
     if (!analysis) return undefined;
 
+    // `export { inner as outer }` of a local declaration
+    const alias = analysis.exportAliases?.find((a) => a.exported === name);
+    const aliased = alias && byFileAndName.get(`${file}#${alias.local}`);
+    if (aliased) return { symbol: aliased };
+
+    return followReexports(analysis, name, depth, seen);
+  };
+
+  /** Where `export … from` bindings in one file send `name`. */
+  const followReexports = (
+    analysis: FileAnalysis,
+    name: string,
+    depth = 0,
+    seen = new Set<string>()
+  ): ExportTarget => {
+    const file = analysis.file;
     let external: string | undefined;
     for (const re of analysis.reexports) {
       if (re.exported !== name && re.exported !== '*') continue;
@@ -113,6 +129,12 @@ export function linkSymbols(
           } else {
             edge.external = imp.source; // genuine package import
           }
+        } else if (a.reexports.some((re) => re.exported === head)) {
+          // A route re-exporting its handler (`export { GET } from './h'`)
+          // references it by the name it forwards.
+          const found = followReexports(a, head);
+          if (found && 'symbol' in found) target = found.symbol;
+          else if (found) edge.external = found.external;
         } else {
           // Not imported: same-file symbol, or an unresolved global
           target = byFileAndName.get(`${a.file}#${head}`) ?? byName.get(head)?.[0];
