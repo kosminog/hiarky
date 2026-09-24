@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { analyzeFile } from '../src/analyze';
 import { linkSymbols } from '../src/resolve';
 import { Edge, edgesOf, SymbolInfo } from '../src/types';
+import { cleanup, makeProject } from './helpers';
 
 const ROOT = path.resolve('tests/fixtures/link-project');
 const FILES = [
@@ -90,5 +91,29 @@ describe('linkSymbols', () => {
 
   it('computes roots as components nothing else renders', () => {
     expect(roots).toEqual(['src/App.tsx#App', 'src/components/Orphan.tsx#Orphan']);
+  });
+});
+
+describe('renamed exports', () => {
+  it('links imports of a local declaration exported under another name', () => {
+    const root = makeProject({
+      'src/Button.tsx':
+        'function InnerButton() {\n  return <button />;\n}\nexport { InnerButton as Button, InnerButton as default };\n',
+      'src/App.tsx':
+        'import Default, { Button } from "./Button";\nexport function App() {\n  return <><Button /><Default /></>;\n}\n',
+    });
+    try {
+      const files = ['src/Button.tsx', 'src/App.tsx'];
+      const analyses = files.map((f) => analyzeFile(path.join(root, f), f));
+      const linked = linkSymbols(root, analyses);
+      const app = linked.symbols.find((s) => s.name === 'App')!;
+      expect(edgesOf(app, 'renders').map((e) => e.id)).toEqual([
+        'src/Button.tsx#InnerButton',
+        'src/Button.tsx#InnerButton',
+      ]);
+      expect(linked.symbols.find((s) => s.name === 'InnerButton')?.export).toBe('default');
+    } finally {
+      cleanup(root);
+    }
   });
 });

@@ -8,6 +8,7 @@ import { isHttpMethod, routeFileInfo, trpcRouterOf, TrpcRouter } from './framewo
 import { isHarnessCall, testSuitesOf } from './tests';
 import {
   Edge,
+  ExportAlias,
   FileAnalysis,
   HookUsage,
   ImportBinding,
@@ -326,6 +327,9 @@ export function analyzeJavascript(absFile: string, relFile: string): FileAnalysi
 
   const imports: ImportBinding[] = [];
   const reexports: ReexportBinding[] = [];
+  const exportAliases: ExportAlias[] = [];
+  // Every `export { … }` specifier naming an HTTP method, for route files
+  const methodExports: Array<{ exported: string; local: string; fromSource: boolean; node: t.Node }> = [];
   const typeMembers = collectTypeMembers(ast);
   const exportedNames = new Set<string>();
   let defaultExportName: string | null = null;
@@ -376,10 +380,18 @@ export function analyzeJavascript(absFile: string, relFile: string): FileAnalysi
       for (const spec of p.node.specifiers) {
         if (!t.isExportSpecifier(spec)) continue;
         const exported = t.isIdentifier(spec.exported) ? spec.exported.name : spec.exported.value;
+        const local = spec.local.name;
+        if (isHttpMethod(exported)) {
+          methodExports.push({ exported, local, fromSource: !!p.node.source, node: spec });
+        }
         if (p.node.source) {
-          reexports.push({ exported, imported: spec.local.name, source: p.node.source.value });
+          reexports.push({ exported, imported: local, source: p.node.source.value });
+        } else if (exported === 'default') {
+          // `export { handler as default }`
+          defaultExportName = local;
         } else {
-          exportedNames.add(spec.local.name);
+          exportedNames.add(local);
+          if (exported !== local) exportAliases.push({ exported, local });
         }
       }
     },
@@ -663,6 +675,25 @@ export function analyzeJavascript(absFile: string, relFile: string): FileAnalysi
     }
   }
 
+  // `export { handler as GET, handler as POST }` serves each method from one
+  // declaration. The route is the exported name, so each method gets its own
+  // route symbol that references the shared handler. The same goes for
+  // handlers imported or re-exported from elsewhere (`export { GET } from …`).
+  if (routeInfo?.role === 'route') {
+    for (const m of methodExports) {
+      if (seen.has(m.exported)) continue; // declared here under its own name
+      exportedNames.add(m.exported);
+      const target = m.fromSource ? undefined : symbols.find((s) => s.name === m.local);
+      push(m.exported, 'function', m.node, {
+        ...(target?.signature ? { signature: target.signature } : {}),
+        ...(target ? { bodyHash: target.bodyHash } : {}),
+        // A re-export has no local binding; the linker follows it by the
+        // exported name through this file's re-exports instead.
+        edges: [{ kind: 'references', name: m.fromSource ? m.exported : m.local }],
+      });
+    }
+  }
+
   // Test suites are declared by calling describe(), not by declaring anything,
   // so they need their own pass over the top-level statements.
   const suites = testSuitesOf(ast.program, relFile);
@@ -692,6 +723,7 @@ export function analyzeJavascript(absFile: string, relFile: string): FileAnalysi
     symbols,
     imports,
     reexports,
+    ...(exportAliases.length ? { exportAliases } : {}),
     ...(parseError ? { parseError } : {}),
   };
 }

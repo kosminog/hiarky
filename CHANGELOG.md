@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Fixed
+
+- Next.js route handlers exported under a method alias (`export { handler as GET, handler as POST }`)
+  are now recorded as routes, one per method, each referencing the shared handler. Handlers imported
+  or re-exported into a `route.ts` (`export { GET } from "…"`) are recorded too.
+- Imports of a declaration exported under another name (`export { Inner as Outer }`,
+  `export { x as default }`) now link to that declaration.
+- The analysis cache format changed; existing caches are discarded and rebuilt on the next scan.
+
 ## 0.1.2
 
 No functional changes to the CLI.
