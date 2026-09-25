@@ -117,6 +117,7 @@ export function analyzePrisma(absFile: string, relFile: string): FileAnalysis {
       ...(members.length ? { members } : {}),
       edges,
       bodyHash: hashOf(blockSource),
+      line: i + 1,
     });
   }
 

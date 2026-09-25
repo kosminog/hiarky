@@ -41,6 +41,41 @@ jobs:
         # merge ref checked out by default would count base commits too.
         run: |
           node dist/index.js review "$BASE...$HEAD" --format github > hiarky-review.md
+
+      - name: Annotate the diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        # Workflow commands on stdout become annotations on the changed lines
+        run: node dist/index.js review "$BASE...$HEAD" --format actions
+
+      - name: Build the viewer for the range
+        id: snapshots
+        continue-on-error: true
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        # The merge base and every commit after it, so the timeline starts
+        # where the branch did
+        run: |
+          merge_base="$(git merge-base "$BASE" "$HEAD")"
+          node dist/index.js backfill --range "$merge_base^..$HEAD" --max 50
+          node dist/index.js view --no-open
+      - uses: actions/upload-artifact@v4
+        id: viewer
+        if: steps.snapshots.outcome == 'success'
+        with:
+          name: hiarky-viewer
+          path: .hiarky/view.html
+          retention-days: 30
+
+      - name: Write the job summary
+        env:
+          VIEWER: ${{ steps.viewer.outputs.artifact-url }}
+        run: |
+          if [ -n "$VIEWER" ]; then
+            printf '\nBrowse every commit in the [interactive viewer](%s) — a workflow artifact, kept 30 days.\n' "$VIEWER" >> hiarky-review.md
+          fi
           cat hiarky-review.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: Post it as a comment

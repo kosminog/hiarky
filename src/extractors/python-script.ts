@@ -223,6 +223,9 @@ def analyze(path):
             "bodyHash": body_hash(segment(source, node)),
             "edges": [],
         }
+        line = getattr(node, "lineno", None)
+        if line:
+            entry["line"] = line
         entry.update({k: v for k, v in extra.items() if v})
         symbols.append(entry)
 

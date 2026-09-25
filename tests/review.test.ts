@@ -266,6 +266,26 @@ describe('ranking declarative and framework symbols', () => {
   });
 });
 
+describe('lines', () => {
+  it('carries the new line of a changed, added, or moved symbol, and none for a removal', () => {
+    const prev = makeSnapshot([
+      makeSymbol({ id: 'src/a.ts#f', signature: '()', bodyHash: 'f1', line: 3 }),
+      makeSymbol({ id: 'src/a.ts#gone', bodyHash: 'g1', line: 20 }),
+      makeSymbol({ id: 'src/old.ts#same', bodyHash: 's1', line: 8 }),
+    ]);
+    const next = makeSnapshot([
+      makeSymbol({ id: 'src/a.ts#f', signature: '(x)', bodyHash: 'f2', line: 5 }),
+      makeSymbol({ id: 'src/a.ts#fresh', bodyHash: 'n1', line: 30 }),
+      makeSymbol({ id: 'src/new.ts#same', bodyHash: 's1', line: 12 }),
+    ]);
+    const { changes } = reviewSnapshots(prev, next);
+    expect(find(changes, 'src/a.ts#f').line).toBe(5);
+    expect(find(changes, 'src/a.ts#fresh').line).toBe(30);
+    expect(find(changes, 'src/new.ts#same').line).toBe(12);
+    expect(find(changes, 'src/a.ts#gone').line).toBeUndefined();
+  });
+});
+
 describe('dependency graph', () => {
   // Untouched code that reaches the changed function: present on both sides
   const bystanders = [

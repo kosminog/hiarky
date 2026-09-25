@@ -17,6 +17,13 @@ All notable changes to this project are documented here. The format follows
   them, in `--format json`.
 - A workflow recipe, in the README and the guide, that posts the review on every pull request as
   one comment updated in place, and as the job summary.
+- `hiarky review --format actions` — GitHub Actions workflow commands, one per change worth a
+  look, so the findings appear as annotations on the changed lines of a pull request's diff. A
+  change no test moved with is a warning; the rest are notices.
+- Symbols record the `line` they start on, where the extractor knows it (JavaScript, TypeScript,
+  Python, Prisma, and the shallow-scanned languages). It is not part of a snapshot's content, so
+  shifting code down a line does not make a new snapshot.
+- The analysis cache format changed; existing caches are discarded and rebuilt on the next scan.
 
 ## 0.1.5
 

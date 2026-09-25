@@ -8,7 +8,7 @@ import { FileAnalysis } from './types';
  * Bump when extractor output changes shape or content, so stale entries from
  * an older build are never served. Deleting .hiarky/cache has the same effect.
  */
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 
 /** Entries kept on disk; oldest-used are dropped past this. */
 const MAX_ENTRIES = 5000;

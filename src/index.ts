@@ -65,7 +65,7 @@ program
     'git range to review: `main..HEAD`, `main...HEAD`, or a single rev (defaults to the last two snapshots)'
   )
   .description('Summarize the symbol-level changes in a commit range, ranked by impact')
-  .option('--format <format>', 'text | md | github | json', 'text')
+  .option('--format <format>', 'text | md | github | actions | json', 'text')
   .option('--per-commit', 'report each commit in the range separately')
   .option('--all-files', 'include symbols in files the range never touched')
   .option('--no-cache', 'ignore the per-file analysis cache')
@@ -75,8 +75,10 @@ program
       opts: { format: string; perCommit?: boolean; allFiles?: boolean; cache: boolean }
     ) => {
       const format = opts.format as ReviewFormat;
-      if (!['text', 'md', 'github', 'json'].includes(format)) {
-        throw new Error(`unknown --format ${opts.format}; expected text, md, github, or json.`);
+      if (!['text', 'md', 'github', 'actions', 'json'].includes(format)) {
+        throw new Error(
+          `unknown --format ${opts.format}; expected text, md, github, actions, or json.`
+        );
       }
       process.stdout.write(
         await reviewProject(requireProjectRoot(), {

@@ -224,6 +224,7 @@ export function analyzeGeneric(absFile: string, relFile: string): FileAnalysis {
           signature: code.replace(/\s*\{\s*$/, '').slice(0, 200),
           edges: [],
           bodyHash: hashOf(code),
+          line: index + 1,
         };
         symbols.push(symbol);
         byName.set(name, symbol);

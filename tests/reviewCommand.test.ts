@@ -90,6 +90,12 @@ describe('reviewProject over a commit range', () => {
     expect(out).toContain('<details><summary>Full report</summary>');
   });
 
+  it('renders GitHub Actions annotations on request', async () => {
+    const out = await reviewProject(root, { range: `${shas[0]}..${shas[1]}`, format: 'actions' });
+    expect(out).toContain('::warning file=src/Button.tsx,line=1,title=hiarky%3A Button changed');
+    expect(out).toContain('props: +kind');
+  });
+
   it('renders machine-readable json', async () => {
     const out = await reviewProject(root, { range: `${shas[0]}..${shas[1]}`, format: 'json' });
     const parsed = JSON.parse(out);
