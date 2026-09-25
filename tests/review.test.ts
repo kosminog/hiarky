@@ -265,3 +265,77 @@ describe('ranking declarative and framework symbols', () => {
     expect(changes[0].reasons).toContain('API procedure');
   });
 });
+
+describe('dependency graph', () => {
+  // Untouched code that reaches the changed function: present on both sides
+  const bystanders = [
+    makeSymbol({
+      id: 'src/admin.ts#list',
+      edges: [{ kind: 'calls', name: 'fetchUser', id: 'src/api.ts#fetchUser' }],
+    }),
+    makeSymbol({
+      id: 'src/admin.ts#show',
+      edges: [{ kind: 'references', name: 'fetchUser', id: 'src/api.ts#fetchUser' }],
+    }),
+    makeSymbol({
+      id: 'tests/api.test.ts#api',
+      kind: 'test',
+      role: ['test'],
+      export: 'none',
+      edges: [{ kind: 'calls', name: 'fetchUser', id: 'src/api.ts#fetchUser' }],
+    }),
+  ];
+  const prev = makeSnapshot([
+    makeSymbol({ id: 'src/api.ts#fetchUser', signature: '(id: string)', bodyHash: 'a1' }),
+    makeSymbol({ id: 'src/api.ts#gone', bodyHash: 'g1' }),
+    makeSymbol({
+      id: 'src/page.ts#Page',
+      bodyHash: 'p1',
+      edges: [{ kind: 'calls', name: 'fetchUser', id: 'src/api.ts#fetchUser' }],
+    }),
+    ...bystanders,
+  ]);
+  const next = makeSnapshot([
+    makeSymbol({ id: 'src/api.ts#fetchUser', signature: '(id: string, opts: {})', bodyHash: 'a2' }),
+    makeSymbol({
+      id: 'src/page.ts#Page',
+      bodyHash: 'p2',
+      edges: [{ kind: 'calls', name: 'fetchUser', id: 'src/api.ts#fetchUser' }],
+    }),
+    ...bystanders,
+  ]);
+  const { graph, changes } = reviewSnapshots(prev, next);
+
+  it('records edges between changed symbols', () => {
+    expect(graph.edges).toEqual([
+      { from: 'src/page.ts#Page', to: 'src/api.ts#fetchUser', kind: 'calls' },
+    ]);
+  });
+
+  it('groups unchanged dependents by file and counts their symbols', () => {
+    expect(graph.dependents).toContainEqual({
+      file: 'src/admin.ts',
+      symbols: 2,
+      targets: ['src/api.ts#fetchUser'],
+      test: false,
+    });
+  });
+
+  it('marks a file of test code as such', () => {
+    expect(graph.dependents).toContainEqual({
+      file: 'tests/api.test.ts',
+      symbols: 1,
+      targets: ['src/api.ts#fetchUser'],
+      test: true,
+    });
+  });
+
+  it('gives a removed symbol no dependents', () => {
+    expect(changes.some((c) => c.id === 'src/api.ts#gone' && c.kind === 'removed')).toBe(true);
+    expect(graph.dependents.flatMap((d) => d.targets)).not.toContain('src/api.ts#gone');
+  });
+
+  it('does not count a changed symbol as a bystander of another', () => {
+    expect(graph.dependents.map((d) => d.file)).not.toContain('src/page.ts');
+  });
+});

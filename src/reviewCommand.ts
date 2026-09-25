@@ -1,12 +1,12 @@
 import { AnalysisCache, nullCache, openCache } from './cache';
-import { renderMarkdown, renderText, ReportContext } from './report';
+import { renderGithub, renderMarkdown, renderText, ReportContext } from './report';
 import { readProjectName } from './project';
 import { Review, reviewSnapshots } from './review';
 import { analyzeProject, buildSnapshot, loadSnapshotEntries } from './snap';
 import { Snapshot } from './types';
 import { gitOut, readRepo, RepoInfo, withWorktree } from './worktree';
 
-export type ReviewFormat = 'text' | 'md' | 'json';
+export type ReviewFormat = 'text' | 'md' | 'github' | 'json';
 
 export interface ReviewCommandOptions {
   /** `a..b`, `a...b`, or a single rev meaning `<rev>..HEAD` */
@@ -109,6 +109,7 @@ async function snapshotsForCommits(
 
 function render(review: Review, ctx: ReportContext, format: ReviewFormat): string {
   if (format === 'json') return JSON.stringify({ ...ctx, review }, null, 2);
+  if (format === 'github') return renderGithub(review, ctx);
   return format === 'md' ? renderMarkdown(review, ctx) : renderText(review, ctx);
 }
 
@@ -176,7 +177,7 @@ export async function reviewProject(
     if (sections.length === 0) {
       return `No symbol-level changes across ${commits.length} commit(s).\n`;
     }
-    return sections.join(opts.format === 'md' ? '\n---\n\n' : '\n');
+    return sections.join(opts.format === 'text' ? '\n' : '\n---\n\n');
   }
 
   const snapshots = await snapshotsForCommits(root, repo, [base, head], cache);

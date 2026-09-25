@@ -51,6 +51,7 @@ Identical snapshots are skipped, so none of these flood the history.
 ```sh
 hiarky review main..HEAD
 hiarky review main..HEAD --format md   # markdown for a PR comment
+hiarky review main..HEAD --format github # with a visual summary on top
 ```
 
 See [Reviewing changes](./review) for what the report contains.

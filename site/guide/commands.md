@@ -23,6 +23,7 @@ hiarky review main..HEAD               # everything on this branch
 hiarky review main...HEAD              # since the branches diverged
 hiarky review v1.2.0                   # a single rev means <rev>..HEAD
 hiarky review main..HEAD --format md   # markdown, for a PR comment
+hiarky review main..HEAD --format github # markdown with a visual summary, for a PR comment
 hiarky review main..HEAD --format json # the full data, for tooling
 hiarky review main..HEAD --per-commit  # one section per commit
 hiarky review main..HEAD --all-files   # don't narrow to files the range touched

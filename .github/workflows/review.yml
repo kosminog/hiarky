@@ -1,0 +1,62 @@
+name: Review
+
+# Posts a hiarky review of every pull request as one comment, updated in
+# place on each push, and as the job summary. The comment step needs a
+# token that can write, which a pull request from a fork does not get; the
+# summary still appears on the run.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Both ends of the range must be reachable
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      # This repository reviews itself with the checkout's own build. Any
+      # other project runs `npx hiarky review` instead.
+      - run: npm run build
+
+      - name: Review the pull request
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        # `base...head` reviews what the branch did since it diverged; the
+        # merge ref checked out by default would count base commits too.
+        run: |
+          node dist/index.js review "$BASE...$HEAD" --format github > hiarky-review.md
+          cat hiarky-review.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post it as a comment
+        # A fork's token is read-only; the job summary is the fallback.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          marker='<!-- hiarky-review -->'
+          { echo "$marker"; cat hiarky-review.md; } > hiarky-comment.md
+          existing="$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq "first(.[] | select(.body | startswith(\"$marker\")) | .id)" | head -n 1)"
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$existing" -F body=@hiarky-comment.md > /dev/null
+          else
+            gh api "repos/$REPO/issues/$PR/comments" -F body=@hiarky-comment.md > /dev/null
+          fi
