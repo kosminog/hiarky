@@ -251,3 +251,32 @@ describe('actions rendering', () => {
     expect(renderActions(reviewSnapshots(prev, prev))).toBe('');
   });
 });
+
+describe('render tree rendering', () => {
+  const page = makeComponent({
+    id: 'src/app/page.tsx#Page',
+    kind: 'route',
+    route: '/todos',
+    bodyHash: 'p',
+    renders: [{ name: 'Item', id: 'src/Item.tsx#Item' }],
+  });
+  const prev = makeSnapshot([page, makeComponent({ id: 'src/Item.tsx#Item', bodyHash: '1' })]);
+  const next = makeSnapshot([page, makeComponent({ id: 'src/Item.tsx#Item', bodyHash: '2', members: ['x'] })]);
+  const md = renderGithub(reviewSnapshots(prev, next), CTX);
+
+  it('draws the page above the changed component, with its URL', () => {
+    expect(md).toContain('### Render tree');
+    expect(md).toContain('flowchart TD');
+    expect(md).toContain('[["Page<br/><i>/todos</i>"]]:::dep');
+    expect(md).toContain('["Item"]:::changed');
+    expect(md).toMatch(/r\d+ --> r\d+/);
+  });
+
+  it('is left out when no changed component has a parent', () => {
+    const lone = reviewSnapshots(
+      makeSnapshot([makeComponent({ id: 'src/A.tsx#A', bodyHash: '1' })]),
+      makeSnapshot([makeComponent({ id: 'src/A.tsx#A', bodyHash: '2', members: ['x'] })])
+    );
+    expect(renderGithub(lone, CTX)).not.toContain('### Render tree');
+  });
+});

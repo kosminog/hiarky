@@ -90,6 +90,17 @@ describe('reviewProject over a commit range', () => {
     expect(out).toContain('<details><summary>Full report</summary>');
   });
 
+  it('leads a per-commit github report with an overview table', async () => {
+    const out = await reviewProject(root, {
+      range: `${shas[0]}..${shas[2]}`,
+      format: 'github',
+      perCommit: true,
+    });
+    expect(out).toContain('## hiarky review · 2 commits');
+    expect(out).toContain(`| \`${shas[1].slice(0, 7)}\` | button gains kind | +0 −0 ~1 |`);
+    expect(out).toContain(`| \`${shas[2].slice(0, 7)}\` | add card | +1 −0 ~0 |`);
+  });
+
   it('renders GitHub Actions annotations on request', async () => {
     const out = await reviewProject(root, { range: `${shas[0]}..${shas[1]}`, format: 'actions' });
     expect(out).toContain('::warning file=src/Button.tsx,line=1,title=hiarky%3A Button changed');

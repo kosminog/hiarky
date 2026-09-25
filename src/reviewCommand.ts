@@ -1,5 +1,12 @@
 import { AnalysisCache, nullCache, openCache } from './cache';
-import { renderActions, renderGithub, renderMarkdown, renderText, ReportContext } from './report';
+import {
+  impactBar,
+  renderActions,
+  renderGithub,
+  renderMarkdown,
+  renderText,
+  ReportContext,
+} from './report';
 import { readProjectName } from './project';
 import { Review, reviewSnapshots } from './review';
 import { analyzeProject, buildSnapshot, loadSnapshotEntries } from './snap';
@@ -114,6 +121,14 @@ function render(review: Review, ctx: ReportContext, format: ReviewFormat): strin
   return format === 'md' ? renderMarkdown(review, ctx) : renderText(review, ctx);
 }
 
+/** One line of the per-commit overview table. */
+function commitRow(sha: string, subject: string, review: Review): string {
+  const s = review.stats;
+  const max = review.changes.reduce((m, c) => Math.max(m, c.impact), 0);
+  const cell = subject.replace(/\|/g, '\\|');
+  return `| \`${sha.slice(0, 7)}\` | ${cell} | +${s.added} −${s.removed} ~${s.changed} | ${impactBar(max)} ${max} |`;
+}
+
 function subjectOf(root: string, sha: string): string {
   try {
     return gitOut(root, ['show', '-s', '--format=%s', sha]);
@@ -157,6 +172,7 @@ export async function reviewProject(
     cache.flush();
     const sections: string[] = [];
     const jsonSections: unknown[] = [];
+    const rows: string[] = [];
 
     for (let i = 1; i < shas.length; i++) {
       const prevSha = shas[i - 1];
@@ -172,6 +188,7 @@ export async function reviewProject(
       };
       if (opts.format === 'json') jsonSections.push({ commit: sha, ...ctx, review });
       else sections.push(render(review, ctx, opts.format));
+      rows.push(commitRow(sha, subjectOf(root, sha), review));
     }
 
     if (opts.format === 'json') return JSON.stringify(jsonSections, null, 2);
@@ -179,7 +196,21 @@ export async function reviewProject(
       return `No symbol-level changes across ${commits.length} commit(s).\n`;
     }
     const joiner = opts.format === 'md' || opts.format === 'github' ? '\n---\n\n' : '\n';
-    return sections.join(joiner);
+    // A range reads better with its shape up front: which commit did what
+    const overview =
+      opts.format === 'github'
+        ? [
+            `## hiarky review · ${commits.length} commit${commits.length === 1 ? '' : 's'}`,
+            '',
+            '| commit | | + − ~ | highest impact |',
+            '|---|---|---|---|',
+            ...rows,
+            '',
+            '---',
+            '',
+          ].join('\n')
+        : '';
+    return overview + sections.join(joiner);
   }
 
   const snapshots = await snapshotsForCommits(root, repo, [base, head], cache);
