@@ -13,6 +13,7 @@
 | `edges` | `renders` (JSX children), `calls` (project functions and imports), `extends`, `references` |
 | `role` | Tags such as `client` / `server` (from `"use client"`), `class` for class components |
 | `route` | The URL a page or handler serves: `/dashboard/company/:id`, `GET /api/health` |
+| `line` | Line the declaration starts on, where the extractor knows it; not part of the snapshot's content |
 | `bodyHash` | Hash of the declaration's source, so body-only edits are detected |
 
 ## Components

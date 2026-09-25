@@ -96,6 +96,11 @@ jobs:
         run: |
           npx hiarky review "$BASE...$HEAD" --format github > hiarky-review.md
           cat hiarky-review.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Annotate the diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: npx hiarky review "$BASE...$HEAD" --format actions
       - name: Post it as a comment
         continue-on-error: true # a fork's token is read-only; the summary remains
         env:
@@ -116,7 +121,16 @@ jobs:
 
 The comment is found again by the marker on its first line, so each push edits it rather than
 adding another. A pull request from a fork gets a read-only token, so the comment step is allowed
-to fail and the job summary remains. The hiarky repository runs this workflow on itself.
+to fail and the job summary remains.
+
+`--format actions` prints one [workflow command](https://docs.github.com/actions/reference/workflow-commands-for-github-actions)
+per change worth a look, so the same findings appear as annotations on the changed lines of the
+diff: a warning where no test moved with the change, a notice otherwise. The runner shows ten of
+each per step, so the most important ten go out and the comment has the rest.
+
+The hiarky repository runs this workflow on itself, and additionally snapshots every commit of
+the range with `backfill` and uploads the viewer as an artifact linked from the summary; see
+[its workflow](https://github.com/kosminog/hiarky/blob/main/.github/workflows/review.yml).
 
 ## Output formats
 
@@ -125,5 +139,6 @@ to fail and the job summary remains. The hiarky repository runs this workflow on
 | *(default)* | Terminal text |
 | `--format md` | Markdown, for a PR comment |
 | `--format github` | Markdown with a visual summary on top, for a PR comment or job summary |
+| `--format actions` | GitHub Actions workflow commands: one annotation per change worth a look, on its line |
 | `--format json` | The full data, for tooling |
 | `--per-commit` | One section per commit in the range |

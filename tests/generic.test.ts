@@ -112,6 +112,11 @@ describe('Go', () => {
     ]);
   });
 
+  it('records the line each declaration starts on', () => {
+    expect(symbols().find((s) => s.name === 'Server')?.line).toBe(5);
+    expect(symbols().find((s) => s.name === 'NewServer')?.line).toBe(19);
+  });
+
   it('names a method after its receiver type', () => {
     expect(byName(symbols(), 'Server.Start').lang).toBe('go');
   });

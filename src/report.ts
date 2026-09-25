@@ -643,6 +643,57 @@ export function renderGithub(review: Review, ctx: ReportContext): string {
   return assemble([]);
 }
 
+// ---------------------------------------------------------------------------
+// GitHub Actions annotations: the same findings, placed on the diff itself.
+
+/** The runner shows at most this many warnings, and this many notices, per step. */
+const MAX_ANNOTATIONS = 10;
+
+/** Workflow-command escaping for the message part. */
+function commandData(text: string): string {
+  return text.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+}
+
+/** Property values additionally cannot carry the separators. */
+function commandProperty(text: string): string {
+  return commandData(text).replace(/:/g, '%3A').replace(/,/g, '%2C');
+}
+
+/**
+ * One workflow command per change worth a look, on the symbol's line, so the
+ * finding sits next to the code in the pull request's diff. A change no test
+ * moved with is a warning; the rest are notices. Each level is capped at what
+ * the runner will show, most important first; the comment has the rest.
+ */
+export function renderActions(review: Review): string {
+  const { rest: notTests } = splitTests(review.changes);
+  const { rest } = splitNewFiles(notTests, review.newFiles);
+  const { notable } = splitBodyOnly(rest);
+  const shown = { warning: 0, notice: 0 };
+  const out: string[] = [];
+  for (const c of notable) {
+    if (c.impact < MEDIUM) continue;
+    const note = testNote(c);
+    const level = note ? 'warning' : 'notice';
+    if (shown[level] >= MAX_ANNOTATIONS) continue;
+    shown[level] += 1;
+
+    const props = [`file=${commandProperty(c.file)}`];
+    // A removed symbol has no line in the new tree; the file is the anchor
+    if (c.line) props.push(`line=${c.line}`);
+    props.push(`title=${commandProperty(`hiarky: ${c.name} ${verb(c)} · ${tags(c)}`)}`);
+
+    const lines: string[] = [];
+    const added = addedMembersLine(c);
+    if (added) lines.push(added);
+    for (const d of c.deltas) lines.push(formatDelta(d, c.symbolKind));
+    if (note) lines.push(note);
+    lines.push(`impact ${c.impact}: ${c.reasons.join(', ')}`);
+    out.push(`::${level} ${props.join(',')}::${commandData(lines.join('\n'))}`);
+  }
+  return out.length ? out.join('\n') + '\n' : '';
+}
+
 /** Upper bound of a tier: the next threshold above `min`. */
 function tierAbove(min: number): number {
   return min >= HIGH ? Number.POSITIVE_INFINITY : min >= MEDIUM ? HIGH : MEDIUM;

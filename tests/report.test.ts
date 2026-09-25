@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatDelta, renderGithub, renderMarkdown, renderText } from '../src/report';
+import { formatDelta, renderActions, renderGithub, renderMarkdown, renderText } from '../src/report';
 import { reviewSnapshots } from '../src/review';
 import { makeComponent, makeSnapshot, makeSymbol } from './helpers';
 
@@ -193,5 +193,61 @@ describe('github rendering', () => {
 
   it('says so plainly when nothing changed', () => {
     expect(renderGithub(reviewSnapshots(prev, prev), CTX)).toContain('No symbol-level changes');
+  });
+});
+
+describe('actions rendering', () => {
+  const prev = makeSnapshot([
+    makeSymbol({ id: 'src/api.ts#fetchUser', signature: '(id: string)', bodyHash: 'a1', line: 3 }),
+    makeSymbol({ id: 'src/legacy.ts#gone', bodyHash: 'g1', line: 40 }),
+    makeSymbol({ id: 'src/util.ts#quiet', export: 'none', bodyHash: 'q1', line: 1 }),
+    makeSymbol({ id: 'tests/api.test.ts#api', kind: 'test', role: ['test'], export: 'none',
+      bodyHash: 't1', edges: [{ kind: 'calls', name: 'fetchUser', id: 'src/api.ts#fetchUser' }] }),
+  ]);
+  const next = makeSnapshot([
+    makeSymbol({
+      id: 'src/api.ts#fetchUser',
+      signature: '(id: string, pct: 100%)',
+      bodyHash: 'a2',
+      line: 7,
+    }),
+    makeSymbol({ id: 'src/util.ts#quiet', export: 'none', bodyHash: 'q2', line: 1 }),
+    makeSymbol({ id: 'tests/api.test.ts#api', kind: 'test', role: ['test'], export: 'none',
+      bodyHash: 't2', edges: [{ kind: 'calls', name: 'fetchUser', id: 'src/api.ts#fetchUser' }] }),
+  ]);
+  const out = renderActions(reviewSnapshots(prev, next));
+  const lines = out.trimEnd().split('\n');
+
+  it('places a covered change on its line as a notice', () => {
+    expect(lines).toContain(
+      '::notice file=src/api.ts,line=7,title=hiarky%3A fetchUser changed · function · exported::' +
+        'signature: (id: string) → (id: string, pct: 100%25)%0A' +
+        'impact 38: signature changed, on the public surface'
+    );
+  });
+
+  it('warns about a change no test moved with, and anchors a removal to its file', () => {
+    expect(lines).toContain(
+      '::warning file=src/legacy.ts,title=hiarky%3A gone removed · function · exported::' +
+        'no tests reference this%0Aimpact 40: exported symbol removed'
+    );
+  });
+
+  it('leaves body-only edits off the diff', () => {
+    expect(out).not.toContain('quiet');
+  });
+
+  it('caps each level at what the runner shows', () => {
+    const many = (hash: string) =>
+      Array.from({ length: 30 }, (_, i) =>
+        makeSymbol({ id: `src/m.ts#f${i}`, signature: hash, bodyHash: hash, line: i + 1 })
+      );
+    const capped = renderActions(reviewSnapshots(makeSnapshot(many('a')), makeSnapshot(many('b'))));
+    expect(capped.split('::warning ').length - 1).toBe(10);
+    expect(capped).not.toContain('::notice');
+  });
+
+  it('prints nothing when nothing is worth a look', () => {
+    expect(renderActions(reviewSnapshots(prev, prev))).toBe('');
   });
 });
