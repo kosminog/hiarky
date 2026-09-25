@@ -83,6 +83,13 @@ describe('reviewProject over a commit range', () => {
     expect(out).toContain('- **Button** changed');
   });
 
+  it('renders github-flavored markdown on request', async () => {
+    const out = await reviewProject(root, { range: `${shas[0]}..${shas[1]}`, format: 'github' });
+    expect(out).toContain('| **Impact** |');
+    expect(out).toContain('| `Button` · props | | `+kind` |');
+    expect(out).toContain('<details><summary>Full report</summary>');
+  });
+
   it('renders machine-readable json', async () => {
     const out = await reviewProject(root, { range: `${shas[0]}..${shas[1]}`, format: 'json' });
     const parsed = JSON.parse(out);

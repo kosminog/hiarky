@@ -4,6 +4,20 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Added
+
+- `hiarky review --format github` — the markdown report with a visual summary on top, for a pull
+  request comment or a job summary: impact, public-surface and test-coverage tiles, a table of
+  what changed by kind, a Mermaid blast-radius graph of the highest-ranked changes and the files
+  that depend on them, the public surface before and after, and a ranked file table. The full
+  report follows, folded. Everything renders natively on GitHub; nothing needs hosting.
+- The review carries a `graph`: edges between changed symbols, and the unchanged files that reach
+  them, in `--format json`.
+- A workflow recipe, in the README and the guide, that posts the review on every pull request as
+  one comment updated in place, and as the job summary.
+
 ## 0.1.5
 
 No functional changes to the CLI.
