@@ -56,6 +56,28 @@ export interface SymbolChange {
   reasons: string[];
 }
 
+/** One unchanged file that depends on something in the review. */
+export interface GraphDependent {
+  file: string;
+  /** How many symbols in the file reach a changed symbol */
+  symbols: number;
+  /** Changed symbol ids the file depends on */
+  targets: string[];
+  /** Whether every dependent is test code */
+  test: boolean;
+}
+
+/**
+ * Dependencies around the change set, for drawing its blast radius: edges
+ * between changed symbols, and the unchanged code that reaches them. Both are
+ * read from the newer snapshot, so a removed symbol has no dependents (the
+ * callers it left behind are themselves changes).
+ */
+export interface ReviewGraph {
+  edges: Array<{ from: string; to: string; kind: EdgeKind }>;
+  dependents: GraphDependent[];
+}
+
 export interface Review {
   changes: SymbolChange[];
   /** Changes worth a test that had none change with them */
@@ -71,6 +93,8 @@ export interface Review {
   };
   /** Files whose exported surface changed — the API other code depends on */
   surfaceFiles: string[];
+  /** Dependencies between the changes, and from the rest of the project onto them */
+  graph: ReviewGraph;
 }
 
 /**
@@ -464,6 +488,8 @@ export function reviewSnapshots(
 
   changes.sort((a, b) => b.impact - a.impact || a.id.localeCompare(b.id));
 
+  const graph = buildGraph(next, changes);
+
   const beforeFiles = new Set([...before.values()].map((s) => s.file));
   const newFiles = [
     ...new Set(
@@ -501,7 +527,61 @@ export function reviewSnapshots(
       files: new Set(changes.map((c) => c.file)).size,
     },
     surfaceFiles,
+    graph,
   };
+}
+
+const GRAPH_EDGES: EdgeKind[] = ['calls', 'renders', 'references', 'extends'];
+
+/**
+ * Who depends on what changed. Test suites are changes of their own, so they
+ * never appear as changed nodes, but a suite that reaches a changed symbol is
+ * a dependent worth showing: it is the coverage the review counts.
+ */
+function buildGraph(next: Snapshot, changes: SymbolChange[]): ReviewGraph {
+  const changed = new Set(
+    changes.filter((c) => c.kind !== 'removed' && c.symbolKind !== 'test').map((c) => c.id)
+  );
+  const inReview = new Set(changes.map((c) => c.id));
+  const edges: ReviewGraph['edges'] = [];
+  const seen = new Set<string>();
+  const byFile = new Map<string, { symbols: Set<string>; targets: Set<string>; test: boolean }>();
+
+  for (const symbol of next.symbols) {
+    const isChanged = changed.has(symbol.id);
+    for (const edge of symbol.edges) {
+      if (!edge.id || edge.id === symbol.id || !changed.has(edge.id)) continue;
+      if (!GRAPH_EDGES.includes(edge.kind)) continue;
+      if (isChanged) {
+        const key = `${symbol.id}>${edge.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        edges.push({ from: symbol.id, to: edge.id, kind: edge.kind });
+        continue;
+      }
+      // An unchanged symbol that is itself in the change set under another
+      // entry (a changed test suite) is not a bystander
+      if (inReview.has(symbol.id)) continue;
+      const entry =
+        byFile.get(symbol.file) ??
+        byFile
+          .set(symbol.file, { symbols: new Set(), targets: new Set(), test: true })
+          .get(symbol.file)!;
+      entry.symbols.add(symbol.id);
+      entry.targets.add(edge.id);
+      if (!symbol.role?.includes('test') && symbol.kind !== 'test') entry.test = false;
+    }
+  }
+
+  const dependents = [...byFile]
+    .map(([file, e]) => ({
+      file,
+      symbols: e.symbols.size,
+      targets: [...e.targets].sort(),
+      test: e.test,
+    }))
+    .sort((a, b) => a.file.localeCompare(b.file));
+  return { edges, dependents };
 }
 
 function finish(change: Omit<SymbolChange, 'impact' | 'reasons'>): SymbolChange {

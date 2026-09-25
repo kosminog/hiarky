@@ -45,11 +45,33 @@ Schema, migrations and config are exempt, since no test imports a Prisma model o
 Browser-driven tests (Playwright and similar) import nothing from the app, so they register no
 coverage.
 
+## A visual summary for pull requests
+
+`--format github` puts a summary a reviewer can take in at a glance above the report, using only
+what GitHub renders natively in a comment or job summary: tables and a Mermaid diagram, no images
+to host.
+
+- **Three tiles.** How the changes split across impact tiers, how many touched files changed what
+  they export, and how many changes a test moved with.
+- **What changed, by kind.** Migrations, models, routes and procedures first, since a reviewer
+  reads "1 migration" differently from "26 functions".
+- **Blast radius.** The highest-ranked changes grouped by file, the edges between them, and the
+  unchanged files that depend on them, collapsed to one node per file so a widely used type does
+  not drag in every caller. Test files are marked. It appears only when something depends on
+  something else in the change set.
+- **Public surface.** Signatures and members before and after, for exported symbols.
+- **Files.** Ranked by their most important change and flagged `surface`, `new` or `n untested`:
+  a reading order for the diff.
+
+The full report follows, folded. Sections drop from the bottom up when the whole would not fit in
+a GitHub comment. The dependency data behind the graph is in `--format json` as `graph`.
+
 ## Output formats
 
 | Flag | Use |
 | --- | --- |
 | *(default)* | Terminal text |
 | `--format md` | Markdown, for a PR comment |
+| `--format github` | Markdown with a visual summary on top, for a PR comment or job summary |
 | `--format json` | The full data, for tooling |
 | `--per-commit` | One section per commit in the range |

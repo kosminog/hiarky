@@ -44,6 +44,7 @@ hiarky view            # generate .hiarky/view.html and open it in a browser
 hiarky view --no-open  # generate without opening
 hiarky review          # what changed between the last two snapshots
 hiarky review main..HEAD --format md   # review a commit range, ranked by impact
+hiarky review main..HEAD --format github  # the same, with a visual summary for a PR comment
 hiarky list            # table of snapshots: timestamp, commit, components, changes
 hiarky prune --keep 20 # delete old snapshots, keeping the newest 20 (--dry-run to preview)
 hiarky watch           # auto-snapshot on source changes (--debounce <ms>, default 1500)
@@ -169,6 +170,7 @@ hiarky review main..HEAD           # everything on this branch
 hiarky review main...HEAD          # ...since the branches diverged
 hiarky review v1.2.0               # a single rev means <rev>..HEAD
 hiarky review main..HEAD --format md       # markdown, for a PR comment
+hiarky review main..HEAD --format github   # markdown with a visual summary, for a PR comment
 hiarky review main..HEAD --format json     # the full data, for tooling
 hiarky review main..HEAD --per-commit      # one section per commit
 ```
@@ -194,6 +196,27 @@ What the report gives you, in order:
 - **Grouping that matches how code is read** — brand-new files summarize as one line each, test
   changes get their own section listing the cases added and removed, and body-only changes collapse
   into a single closing section.
+
+### A visual summary for pull requests
+
+`--format github` puts a summary a reviewer can take in at a glance above the report, using only
+what GitHub renders natively in a comment or job summary — tables and a Mermaid diagram, no images
+to host:
+
+- **Three tiles** — how the changes split across impact tiers, how many touched files changed what
+  they export, and how many changes a test moved with.
+- **What changed, by kind** — migrations, models, routes and procedures first, since a reviewer
+  reads "1 migration" differently from "26 functions".
+- **Blast radius** — the highest-ranked changes grouped by file, the edges between them, and the
+  unchanged files that depend on them, collapsed to one node per file so a widely used type does
+  not drag in every caller. Test files are marked. It appears only when something depends on
+  something else in the change set.
+- **Public surface** — signatures and members before and after, for exported symbols.
+- **Files** — ranked by their most important change, flagged `surface`, `new`, or `n untested`,
+  as a reading order for the diff.
+
+The full report follows, folded. Sections drop from the bottom up when the whole would not fit
+in a GitHub comment. The dependency data behind the graph is in `--format json` as `graph`.
 
 ## The viewer
 
