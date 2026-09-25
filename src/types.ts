@@ -108,6 +108,11 @@ export interface SymbolInfo {
   edges: Edge[];
   /** Hash of the declaration's source, for move/rename detection */
   bodyHash: string;
+  /**
+   * Line the declaration starts on, 1-based, when the extractor knows it. Not
+   * part of a snapshot's content: shifting code down a line changes nothing.
+   */
+  line?: number;
 }
 
 /**

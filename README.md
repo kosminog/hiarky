@@ -73,6 +73,7 @@ Every module-scope declaration becomes a **symbol** with a stable id (`<file>#<n
 | `role` | tags such as `client` / `server` (from `"use client"`), `class` for class components |
 | `route` | URL a page or handler serves: `/dashboard/company/:id`, `GET /api/health` |
 | `bodyHash` | hash of the declaration's source, so body-only edits are detected |
+| `line` | line the declaration starts on, where the extractor knows it; not part of the snapshot's content |
 
 Components are recognized as before: function, arrow, `memo`/`forwardRef`-wrapped, and class components. Props come from destructured parameters and TypeScript annotations (inline literals plus same-file interfaces/type aliases); class components use `this.props.x` accesses.
 
@@ -171,6 +172,7 @@ hiarky review main...HEAD          # ...since the branches diverged
 hiarky review v1.2.0               # a single rev means <rev>..HEAD
 hiarky review main..HEAD --format md       # markdown, for a PR comment
 hiarky review main..HEAD --format github   # markdown with a visual summary, for a PR comment
+hiarky review main..HEAD --format actions  # GitHub Actions annotations, on the changed lines
 hiarky review main..HEAD --format json     # the full data, for tooling
 hiarky review main..HEAD --per-commit      # one section per commit
 ```
@@ -248,6 +250,11 @@ jobs:
         run: |
           npx hiarky review "$BASE...$HEAD" --format github > hiarky-review.md
           cat hiarky-review.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Annotate the diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: npx hiarky review "$BASE...$HEAD" --format actions
       - name: Post it as a comment
         continue-on-error: true # a fork's token is read-only; the summary remains
         env:
@@ -267,7 +274,16 @@ jobs:
 ```
 
 The comment is found again by the marker on its first line, so each push edits it rather than
-adding another. This repository runs the same workflow on itself: [`.github/workflows/review.yml`](.github/workflows/review.yml).
+adding another.
+
+`--format actions` prints one [workflow command](https://docs.github.com/actions/reference/workflow-commands-for-github-actions)
+per change worth a look, so the same findings appear as annotations on the changed lines of the
+diff: a warning where no test moved with the change, a notice otherwise. The runner shows ten of
+each per step, so the most important ten go out and the comment has the rest.
+
+This repository runs the same workflow on itself, and additionally snapshots every commit of the
+range and uploads the viewer as an artifact linked from the summary:
+[`.github/workflows/review.yml`](.github/workflows/review.yml).
 
 ## The viewer
 

@@ -48,6 +48,8 @@ export interface SymbolChange {
   tests?: 'changed' | 'unchanged' | 'none';
   /** Whether the symbol is part of the module's public surface */
   exported: boolean;
+  /** Where the symbol now starts, when known; absent for a removal */
+  line?: number;
   /** Set for moved/renamed symbols: where it used to live */
   previousId?: string;
   deltas: FieldDelta[];
@@ -405,6 +407,7 @@ export function reviewSnapshots(
         symbolKind: s.kind,
         ...(s.route ? { route: s.route } : {}),
         ...(s.role?.length ? { role: s.role } : {}),
+        ...(s.line ? { line: s.line } : {}),
         exported: s.export !== 'none',
         deltas,
       })
@@ -426,6 +429,7 @@ export function reviewSnapshots(
         symbolKind: to.kind,
         ...(to.route ? { route: to.route } : {}),
         ...(to.role?.length ? { role: to.role } : {}),
+        ...(to.line ? { line: to.line } : {}),
         exported: to.export !== 'none',
         previousId: from.id,
         deltas: symbolDeltas(from, to),
@@ -443,6 +447,7 @@ export function reviewSnapshots(
         ...(s.route ? { route: s.route } : {}),
         ...(s.role?.length ? { role: s.role } : {}),
         ...(s.members?.length ? { members: s.members } : {}),
+        ...(s.line ? { line: s.line } : {}),
         exported: s.export !== 'none',
         deltas: [],
       })

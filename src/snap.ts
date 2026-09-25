@@ -133,7 +133,10 @@ export async function analyzeProject(
 }
 
 export function contentHashOf(symbols: SymbolInfo[], roots: string[]): string {
-  return createHash('sha256').update(JSON.stringify({ symbols, roots })).digest('hex');
+  // A comment added above a function moves every line after it; that is not
+  // a change worth a snapshot.
+  const content = symbols.map(({ line: _line, ...rest }) => rest);
+  return createHash('sha256').update(JSON.stringify({ symbols: content, roots })).digest('hex');
 }
 
 /** Hash of a snapshot's content, computed on the fly for pre-hash snapshots. */

@@ -100,6 +100,12 @@ describe.skipIf(!HAS_PYTHON)('python extractor', () => {
     ]);
   });
 
+  it('records the line each declaration starts on', () => {
+    const { symbols } = analyze('svc/model.py');
+    expect(byName(symbols, 'ArtifactClassifier').line).toBe(1);
+    expect(byName(symbols, 'model_kwargs').line).toBe(9);
+  });
+
   it('captures annotated signatures', () => {
     expect(byName(analyze('svc/model.py').symbols, 'model_kwargs').signature).toBe('() -> dict');
     expect(byName(analyze('svc/serve.py').symbols, 'classify').signature).toBe(

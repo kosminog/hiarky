@@ -19,6 +19,7 @@ interface RawSymbol {
   kind: string;
   export: SymbolInfo['export'];
   bodyHash: string;
+  line?: number;
   signature?: string;
   route?: string;
   role?: string[];
@@ -125,6 +126,7 @@ function toFileAnalysis(raw: RawFile, relFile: string): FileAnalysis {
       ...(s.members?.length ? { members: s.members } : {}),
       edges,
       bodyHash: s.bodyHash,
+      ...(s.line ? { line: s.line } : {}),
     };
   });
 

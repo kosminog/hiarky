@@ -490,6 +490,7 @@ export function analyzeJavascript(absFile: string, relFile: string): FileAnalysi
       export: exported,
       edges: [],
       bodyHash: hashOf(srcOf(node)),
+      ...(node.loc ? { line: node.loc.start.line } : {}),
       ...(route ? { route } : {}),
       ...(fileRoles.length ? { role: fileRoles } : {}),
       ...extra,

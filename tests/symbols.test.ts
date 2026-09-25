@@ -1,8 +1,9 @@
 import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 import { analyzeFile } from '../src/analyze';
+import { contentHashOf } from '../src/snap';
 import { edgesOf, SymbolInfo } from '../src/types';
-import { cleanup, makeProject, writeFile } from './helpers';
+import { cleanup, makeProject, makeSymbol, writeFile } from './helpers';
 
 const FIX = path.resolve('tests/fixtures/analyze');
 const analyze = (name: string) => analyzeFile(path.join(FIX, name), name);
@@ -65,6 +66,12 @@ describe('non-component symbols', () => {
     expect(byName(res.symbols, 'privateHelper').export).toBe('none');
   });
 
+  it('records the line each declaration starts on', () => {
+    expect(byName(res.symbols, 'Options').line).toBe(4);
+    expect(byName(res.symbols, 'run').line).toBe(20);
+    expect(byName(res.symbols, 'privateHelper').line).toBe(32);
+  });
+
   it('records the language of each symbol', () => {
     expect(res.symbols.every((s) => s.lang === 'ts')).toBe(true);
   });
@@ -75,6 +82,16 @@ describe('roles', () => {
     const widget = byName(analyze('client-comp.tsx').symbols, 'Widget');
     expect(widget.role).toEqual(['client']);
     expect(widget.kind).toBe('component');
+  });
+});
+
+describe('contentHash', () => {
+  it('ignores where a declaration sits, so shifted code is not a new snapshot', () => {
+    const at = (line: number) => [makeSymbol({ id: 'src/a.ts#f', bodyHash: 'same', line })];
+    expect(contentHashOf(at(3), [])).toBe(contentHashOf(at(9), []));
+    expect(contentHashOf(at(3), [])).not.toBe(
+      contentHashOf([makeSymbol({ id: 'src/a.ts#f', bodyHash: 'other', line: 3 })], [])
+    );
   });
 });
 
