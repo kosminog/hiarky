@@ -15,6 +15,8 @@ All notable changes to this project are documented here. The format follows
   report follows, folded. Everything renders natively on GitHub; nothing needs hosting.
 - The review carries a `graph`: edges between changed symbols, and the unchanged files that reach
   them, in `--format json`.
+- A workflow recipe, in the README and the guide, that posts the review on every pull request as
+  one comment updated in place, and as the job summary.
 
 ## 0.1.5
 
