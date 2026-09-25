@@ -61,7 +61,7 @@ jobs:
           merge_base="$(git merge-base "$BASE" "$HEAD")"
           node dist/index.js backfill --range "$merge_base^..$HEAD" --max 50
           node dist/index.js view --no-open
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         id: viewer
         if: steps.snapshots.outcome == 'success'
         with:

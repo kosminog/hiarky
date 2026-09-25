@@ -1,4 +1,11 @@
-import { DECLARATIVE_KINDS, EdgeKind, Snapshot, SymbolInfo, SymbolKind } from './types';
+import {
+  DECLARATIVE_KINDS,
+  EdgeKind,
+  isRenderable,
+  Snapshot,
+  SymbolInfo,
+  SymbolKind,
+} from './types';
 
 export type ChangeKind = 'added' | 'removed' | 'changed' | 'moved';
 
@@ -78,6 +85,27 @@ export interface GraphDependent {
 export interface ReviewGraph {
   edges: Array<{ from: string; to: string; kind: EdgeKind }>;
   dependents: GraphDependent[];
+  /** The render tree above every changed page or component, down to it */
+  renderTree: RenderTree;
+}
+
+export interface RenderTreeNode {
+  id: string;
+  name: string;
+  /** URL served, when the node is a page */
+  route?: string;
+  /** How the node changed; absent for an unchanged ancestor */
+  change?: ChangeKind;
+}
+
+/**
+ * Pages and components that render what changed, top down. Every changed
+ * renderable is a leaf-or-inner node; its ancestors are the path a reviewer
+ * would follow from a URL to the edit.
+ */
+export interface RenderTree {
+  nodes: RenderTreeNode[];
+  edges: Array<{ from: string; to: string }>;
 }
 
 export interface Review {
@@ -586,7 +614,71 @@ function buildGraph(next: Snapshot, changes: SymbolChange[]): ReviewGraph {
       test: e.test,
     }))
     .sort((a, b) => a.file.localeCompare(b.file));
-  return { edges, dependents };
+  return { edges, dependents, renderTree: buildRenderTree(next, changes) };
+}
+
+/**
+ * Walk up from every changed page or component to the roots that render it,
+ * along `renders` edges read backwards. Ancestors are kept whether or not
+ * they changed, since the path is the point; cycles stop the walk.
+ */
+function buildRenderTree(next: Snapshot, changes: SymbolChange[]): RenderTree {
+  const byId = new Map(next.symbols.map((s) => [s.id, s]));
+  const changeOf = new Map(changes.map((c) => [c.id, c]));
+  const parents = new Map<string, Set<string>>();
+  for (const symbol of next.symbols) {
+    if (!isRenderable(symbol.kind)) continue;
+    for (const edge of symbol.edges) {
+      if (edge.kind !== 'renders' || !edge.id || edge.id === symbol.id) continue;
+      const set = parents.get(edge.id) ?? new Set<string>();
+      set.add(symbol.id);
+      parents.set(edge.id, set);
+    }
+  }
+
+  const nodes = new Map<string, RenderTreeNode>();
+  const edges = new Set<string>();
+  const include = (id: string) => {
+    const symbol = byId.get(id);
+    if (!symbol || nodes.has(id)) return;
+    const change = changeOf.get(id)?.kind;
+    nodes.set(id, {
+      id,
+      name: symbol.name,
+      ...(symbol.route ? { route: symbol.route } : {}),
+      ...(change ? { change } : {}),
+    });
+  };
+
+  const seeds = changes
+    .filter((c) => c.kind !== 'removed' && isRenderable(c.symbolKind) && byId.has(c.id))
+    .map((c) => c.id);
+  for (const seed of seeds) {
+    include(seed);
+    const visited = new Set<string>([seed]);
+    let frontier = [seed];
+    while (frontier.length > 0) {
+      const nextFrontier: string[] = [];
+      for (const id of frontier) {
+        for (const parent of parents.get(id) ?? []) {
+          edges.add(`${parent}>${id}`);
+          if (visited.has(parent)) continue;
+          visited.add(parent);
+          include(parent);
+          nextFrontier.push(parent);
+        }
+      }
+      frontier = nextFrontier;
+    }
+  }
+
+  return {
+    nodes: [...nodes.values()],
+    edges: [...edges].map((e) => {
+      const [from, to] = e.split('>');
+      return { from, to };
+    }),
+  };
 }
 
 function finish(change: Omit<SymbolChange, 'impact' | 'reasons'>): SymbolChange {

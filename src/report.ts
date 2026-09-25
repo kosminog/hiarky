@@ -379,6 +379,11 @@ function bar(value: number, total: number, width = BAR_WIDTH): string {
   return '`' + '█'.repeat(filled) + '░'.repeat(width - filled) + '`';
 }
 
+/** An impact score as a short bar, on the same scale the tables use. */
+export function impactBar(impact: number): string {
+  return bar(impact, BAR_SCALE, 8);
+}
+
 /** A table cell: pipes would end the cell, and a code span keeps signatures literal. */
 function cell(text: string): string {
   return '`' + text.replace(/`/g, "'").replace(/\|/g, '\\|') + '`';
@@ -537,6 +542,77 @@ function graphSection(review: Review, notable: SymbolChange[]): string[] {
   return ['### Blast radius', '', intro, '', '```mermaid', ...lines, '```'];
 }
 
+/**
+ * The render tree above what changed: pages at the top, changed components
+ * marked, unchanged ancestors in grey. For a React project this is the map a
+ * reviewer draws by hand — which screens does this edit reach?
+ */
+function renderTreeSection(review: Review): string[] {
+  const tree = review.graph.renderTree;
+  if (tree.edges.length === 0) return [];
+  const byId = new Map(tree.nodes.map((n) => [n.id, n]));
+  const changed = tree.nodes.filter((n) => n.change);
+  // Widest trees: keep every changed node and the ancestors it reaches, up to
+  // the cap, so the diagram stays a map and not a wall
+  const keep = new Set<string>();
+  const childrenOf = new Map<string, string[]>();
+  const parentsOf = new Map<string, string[]>();
+  for (const e of tree.edges) {
+    childrenOf.set(e.from, [...(childrenOf.get(e.from) ?? []), e.to]);
+    parentsOf.set(e.to, [...(parentsOf.get(e.to) ?? []), e.from]);
+  }
+  for (const node of changed) {
+    if (keep.size >= MAX_GRAPH_NODES) break;
+    const path = new Set<string>();
+    let frontier = [node.id];
+    while (frontier.length > 0) {
+      const nextFrontier: string[] = [];
+      for (const id of frontier) {
+        if (path.has(id)) continue;
+        path.add(id);
+        nextFrontier.push(...(parentsOf.get(id) ?? []));
+      }
+      frontier = nextFrontier;
+    }
+    if (keep.size + [...path].filter((id) => !keep.has(id)).length > MAX_GRAPH_NODES * 2) continue;
+    for (const id of path) keep.add(id);
+  }
+  if (keep.size === 0) return [];
+
+  const ids = new Map<string, string>();
+  const nodeId = (key: string) => {
+    let id = ids.get(key);
+    if (!id) {
+      id = `r${ids.size + 1}`;
+      ids.set(key, id);
+    }
+    return id;
+  };
+  const lines = ['flowchart TD'];
+  for (const id of keep) {
+    const node = byId.get(id)!;
+    const label = node.route
+      ? `${mermaidLabel(node.name)}<br/><i>${mermaidLabel(node.route)}</i>`
+      : mermaidLabel(node.name);
+    const cls = node.change === 'added' ? 'added' : node.change ? 'changed' : 'dep';
+    const shape = node.route ? `[[${'"' + label + '"'}]]` : `["${label}"]`;
+    lines.push(`  ${nodeId(id)}${shape}:::${cls}`);
+  }
+  for (const e of tree.edges) {
+    if (keep.has(e.from) && keep.has(e.to)) lines.push(`  ${nodeId(e.from)} --> ${nodeId(e.to)}`);
+  }
+  lines.push(
+    '  classDef changed fill:#fef3c7,stroke:#d97706,color:#78350f',
+    '  classDef added fill:#dcfce7,stroke:#16a34a,color:#14532d',
+    '  classDef dep fill:#f3f4f6,stroke:#9ca3af,color:#374151'
+  );
+  const omitted = changed.filter((n) => !keep.has(n.id)).length;
+  const intro =
+    'Pages and components that render what changed, top down (amber: changed, green: added, grey: unchanged on the path).' +
+    (omitted ? ` ${plural(omitted, 'changed component')} not shown.` : '');
+  return ['### Render tree', '', intro, '', '```mermaid', ...lines, '```'];
+}
+
 /** The API diff: what exported symbols looked like before and after. */
 function surfaceSection(review: Review): string[] {
   const rows: string[] = [];
@@ -627,6 +703,7 @@ export function renderGithub(review: Review, ctx: ReportContext): string {
   const required = [...out, '', ...tilesSection(review, notTests), '', ...kindSection(review)];
   const optional: string[][] = [
     graphSection(review, notable),
+    renderTreeSection(review),
     surfaceSection(review),
     filesSection(review),
     ['<details><summary>Full report</summary>', ...markdownBody(review), '', '</details>'],
@@ -635,7 +712,7 @@ export function renderGithub(review: Review, ctx: ReportContext): string {
   const assemble = (sections: string[][]) =>
     [...required, ...sections.flatMap((section) => ['', ...section])].join('\n') + '\n';
   // Drop the least visual section first: the folded report is a click away
-  // in `--format md`, the file table is next, and the graph goes last.
+  // in `--format md`, the file table is next, and the graphs go last.
   for (let keep = optional.length; keep >= 0; keep--) {
     const text = assemble(optional.slice(0, keep));
     if (text.length <= MAX_COMMENT) return text;

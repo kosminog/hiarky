@@ -24,6 +24,9 @@ All notable changes to this project are documented here. The format follows
   Python, Prisma, and the shallow-scanned languages). It is not part of a snapshot's content, so
   shifting code down a line does not make a new snapshot.
 - The analysis cache format changed; existing caches are discarded and rebuilt on the next scan.
+- The GitHub-flavored report draws the render tree above every changed page or component, so a
+  React change shows the screens it reaches, and leads a `--per-commit` review with an overview
+  table of the commits. The review's `graph` carries the tree as `renderTree`.
 
 ## 0.1.5
 
