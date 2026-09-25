@@ -213,12 +213,15 @@ to host:
   unchanged files that depend on them, collapsed to one node per file so a widely used type does
   not drag in every caller. Test files are marked. It appears only when something depends on
   something else in the change set.
+- **Render tree** — for a React project, the pages and components that render what changed, top
+  down: the screens an edit reaches, with the changed components marked on the path.
 - **Public surface** — signatures and members before and after, for exported symbols.
 - **Files** — ranked by their most important change, flagged `surface`, `new`, or `n untested`,
   as a reading order for the diff.
 
 The full report follows, folded. Sections drop from the bottom up when the whole would not fit
-in a GitHub comment. The dependency data behind the graph is in `--format json` as `graph`.
+in a GitHub comment. With `--per-commit`, an overview table of the commits leads. The dependency
+data behind the graphs is in `--format json` as `graph`.
 
 ### Posting it on pull requests
 

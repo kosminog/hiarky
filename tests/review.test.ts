@@ -359,3 +359,65 @@ describe('dependency graph', () => {
     expect(graph.dependents.map((d) => d.file)).not.toContain('src/page.ts');
   });
 });
+
+describe('render tree', () => {
+  const page = makeComponent({
+    id: 'src/app/page.tsx#Page',
+    kind: 'route',
+    route: '/todos',
+    bodyHash: 'p',
+    renders: [{ name: 'List', id: 'src/List.tsx#List' }],
+  });
+  const list = (hash: string) =>
+    makeComponent({
+      id: 'src/List.tsx#List',
+      bodyHash: hash,
+      renders: [{ name: 'Item', id: 'src/Item.tsx#Item' }],
+    });
+  const item = (hash: string, extra: Array<{ name: string; id: string }> = []) =>
+    makeComponent({ id: 'src/Item.tsx#Item', bodyHash: hash, renders: extra });
+  const badge = makeComponent({ id: 'src/Badge.tsx#Badge', bodyHash: 'b' });
+  const aside = makeComponent({ id: 'src/Aside.tsx#Aside', bodyHash: 'a' });
+
+  const prev = makeSnapshot([page, list('l1'), item('i1'), aside]);
+  const next = makeSnapshot([
+    page,
+    list('l1'),
+    item('i2', [{ name: 'Badge', id: 'src/Badge.tsx#Badge' }]),
+    badge,
+    aside,
+  ]);
+  const { renderTree } = reviewSnapshots(prev, next).graph;
+  const names = () => renderTree.nodes.map((n) => `${n.name}${n.change ? ':' + n.change : ''}`);
+
+  it('keeps every changed component and the path up to the page that renders it', () => {
+    expect(names().sort()).toEqual(['Badge:added', 'Item:changed', 'List', 'Page'].sort());
+    expect(renderTree.edges).toContainEqual({ from: 'src/List.tsx#List', to: 'src/Item.tsx#Item' });
+    expect(renderTree.edges).toContainEqual({ from: 'src/app/page.tsx#Page', to: 'src/List.tsx#List' });
+    expect(renderTree.edges).toContainEqual({ from: 'src/Item.tsx#Item', to: 'src/Badge.tsx#Badge' });
+  });
+
+  it('carries the URL of a page on the path', () => {
+    expect(renderTree.nodes.find((n) => n.name === 'Page')?.route).toBe('/todos');
+  });
+
+  it('leaves components off the path alone', () => {
+    expect(names()).not.toContain('Aside');
+  });
+
+  it('survives a render cycle', () => {
+    const a = (hash: string) =>
+      makeComponent({ id: 'src/A.tsx#A', bodyHash: hash, renders: [{ name: 'B', id: 'src/B.tsx#B' }] });
+    const b = makeComponent({ id: 'src/B.tsx#B', bodyHash: 'b', renders: [{ name: 'A', id: 'src/A.tsx#A' }] });
+    const tree = reviewSnapshots(makeSnapshot([a('1'), b]), makeSnapshot([a('2'), b])).graph.renderTree;
+    expect(tree.nodes.map((n) => n.name).sort()).toEqual(['A', 'B']);
+  });
+
+  it('is empty when nothing renderable changed', () => {
+    const tree = reviewSnapshots(
+      makeSnapshot([makeSymbol({ id: 'src/x.ts#f', bodyHash: '1' })]),
+      makeSnapshot([makeSymbol({ id: 'src/x.ts#f', bodyHash: '2' })])
+    ).graph.renderTree;
+    expect(tree).toEqual({ nodes: [], edges: [] });
+  });
+});
