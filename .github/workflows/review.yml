@@ -17,6 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The review of this repository's pull requests comes from the checkout's
+  # own build, so a change to the report is what the comment shows.
   review:
     runs-on: ubuntu-latest
     steps:
@@ -95,3 +97,19 @@ jobs:
           else
             gh api "repos/$REPO/issues/$PR/comments" -F body=@hiarky-comment.md > /dev/null
           fi
+
+  # The published action, run against this repository so its steps are
+  # exercised on every pull request. It runs the latest npm release, so it
+  # does not post a comment: the job above owns that.
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: ./
+        with:
+          version: latest
+          comment: 'false'
+          annotate: 'false'
+          viewer: 'true'

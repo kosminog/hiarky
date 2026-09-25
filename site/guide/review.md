@@ -71,9 +71,44 @@ behind the graphs is in `--format json` as `graph`.
 
 ## Posting it on pull requests
 
-A workflow can run the review on every pull request and post it as one comment, updated in place
-on each push, and as the run's job summary. `base...head` reviews what the branch did since it
-diverged, so commits that landed on the base branch in the meantime do not count against it.
+The `kosminog/hiarky` action runs the review on every pull request and posts it as one comment,
+updated in place on each push, as the run's job summary, and as annotations on the changed lines
+of the diff:
+
+```yaml
+name: Review
+on:
+  pull_request:
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # both ends of the range must be reachable
+      - uses: kosminog/hiarky@v0.2.0
+```
+
+It runs the hiarky release it was tagged with; `version` overrides that.
+
+| Input | Default | What it does |
+| --- | --- | --- |
+| `comment` | `true` | Post the review as one pull request comment, updated in place |
+| `summary` | `true` | Write the review to the job summary |
+| `annotate` | `true` | Annotate the changed lines of the diff with the changes worth a look |
+| `viewer` | `false` | Snapshot every commit of the range and upload the interactive viewer as an artifact, linked from the comment and the summary |
+| `range` | the pull request's branch since it diverged | Any git range, for other events |
+| `working-directory` | `.` | The project, when it is not at the repository root |
+| `version` | the release the action was tagged with | The hiarky version to run from npm |
+| `token` | `github.token` | Token for the comment; needs `pull-requests: write` |
+
+A pull request from a fork gets a read-only token, so the comment step is allowed to fail and the
+rest remains. The action is
+[`action.yml`](https://github.com/kosminog/hiarky/blob/main/action.yml) at the root of the
+repository; the same steps by hand:
 
 ```yaml
 name: Review
@@ -131,8 +166,8 @@ per change worth a look, so the same findings appear as annotations on the chang
 diff: a warning where no test moved with the change, a notice otherwise. The runner shows ten of
 each per step, so the most important ten go out and the comment has the rest.
 
-The hiarky repository runs this workflow on itself, and additionally snapshots every commit of
-the range with `backfill` and uploads the viewer as an artifact linked from the summary; see
+The hiarky repository reviews its own pull requests from the checkout's build, and runs the
+published action beside it; see
 [its workflow](https://github.com/kosminog/hiarky/blob/main/.github/workflows/review.yml).
 
 ## Output formats

@@ -15,8 +15,10 @@ All notable changes to this project are documented here. The format follows
   report follows, folded. Everything renders natively on GitHub; nothing needs hosting.
 - The review carries a `graph`: edges between changed symbols, and the unchanged files that reach
   them, in `--format json`.
-- A workflow recipe, in the README and the guide, that posts the review on every pull request as
-  one comment updated in place, and as the job summary.
+- A GitHub Action, `kosminog/hiarky`, that reviews every pull request and posts the result as one
+  comment updated in place, as the job summary, and as annotations on the diff, with the
+  interactive viewer as an optional artifact. The same steps are a recipe in the README and the
+  guide.
 - `hiarky review --format actions` — GitHub Actions workflow commands, one per change worth a
   look, so the findings appear as annotations on the changed lines of a pull request's diff. A
   change no test moved with is a warning; the rest are notices.

@@ -1,0 +1,173 @@
+name: hiarky review
+description: >-
+  Review what a pull request changed at the symbol level — routes, procedures, models, components,
+  functions — and post it as one comment, a job summary, and annotations on the diff.
+author: Kosminog
+branding:
+  icon: git-pull-request
+  color: purple
+
+inputs:
+  range:
+    description: >-
+      Git range to review. Defaults to what the pull request's branch did since it diverged from
+      its base, so it is only required on other events.
+    default: ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }}
+  version:
+    description: >-
+      The hiarky version to run from npm. Defaults to the version this action was released with.
+    default: ''
+  working-directory:
+    description: The project directory, for a project that is not at the repository root.
+    default: .
+  comment:
+    description: Post the review as one pull request comment, updated in place on each push.
+    default: 'true'
+  summary:
+    description: Write the review to the job summary.
+    default: 'true'
+  annotate:
+    description: Annotate the changed lines of the diff with the changes worth a look.
+    default: 'true'
+  viewer:
+    description: >-
+      Snapshot every commit of the range and upload hiarky's interactive viewer as a workflow
+      artifact, linked from the comment and the summary.
+    default: 'false'
+  token:
+    description: 'Token used to post the comment. Needs the `pull-requests: write` permission.'
+    default: ${{ github.token }}
+
+outputs:
+  report:
+    description: Path of the review, as GitHub-flavored markdown.
+    value: ${{ steps.review.outputs.report }}
+  viewer-url:
+    description: URL of the uploaded viewer artifact, when `viewer` is on.
+    value: ${{ steps.upload.outputs.artifact-url }}
+
+runs:
+  using: composite
+  steps:
+    - name: Pick the hiarky version
+      id: version
+      shell: bash
+      env:
+        REQUESTED: ${{ inputs.version }}
+      # The action and the package release together; a checkout of an
+      # unreleased commit falls back to the latest published version.
+      run: |
+        version="$REQUESTED"
+        if [ -z "$version" ]; then
+          version="$(node -p "require('$GITHUB_ACTION_PATH/package.json').version")"
+          if [ -z "$(npm view "hiarky@$version" version 2>/dev/null)" ]; then
+            echo "::notice::hiarky $version is not published yet; running the latest release instead"
+            version=latest
+          fi
+        fi
+        echo "version=$version" >> "$GITHUB_OUTPUT"
+
+    - name: Check the range is reachable
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        RANGE: ${{ inputs.range }}
+      # `a...b`, `a..b`, or a single rev: both ends must be in the checkout
+      run: |
+        left="${RANGE%%..*}"
+        right="${RANGE##*..}"
+        if [ -z "$left" ] || [ -z "$right" ]; then
+          echo "::error::no range to review: set the \`range\` input when the event is not a pull request"
+          exit 1
+        fi
+        for rev in "$left" "$right"; do
+          if ! git rev-parse -q --verify "$rev^{commit}" > /dev/null; then
+            echo "::error::$rev is not in this checkout — use actions/checkout with fetch-depth: 0"
+            exit 1
+          fi
+        done
+
+    - name: Review the range
+      id: review
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        RANGE: ${{ inputs.range }}
+        VERSION: ${{ steps.version.outputs.version }}
+      run: |
+        report="$RUNNER_TEMP/hiarky-review.md"
+        npx --yes "hiarky@$VERSION" review "$RANGE" --format github > "$report"
+        echo "report=$report" >> "$GITHUB_OUTPUT"
+
+    - name: Annotate the diff
+      if: ${{ inputs.annotate == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        RANGE: ${{ inputs.range }}
+        VERSION: ${{ steps.version.outputs.version }}
+      # Workflow commands on stdout become annotations on the changed lines
+      run: npx --yes "hiarky@$VERSION" review "$RANGE" --format actions
+
+    - name: Build the viewer for the range
+      if: ${{ inputs.viewer == 'true' }}
+      id: snapshots
+      continue-on-error: true
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        RANGE: ${{ inputs.range }}
+        VERSION: ${{ steps.version.outputs.version }}
+      # The merge base and every commit after it, so the timeline starts
+      # where the branch did
+      run: |
+        left="${RANGE%%..*}"
+        right="${RANGE##*..}"
+        merge_base="$(git merge-base "$left" "$right")"
+        npx --yes "hiarky@$VERSION" backfill --range "$merge_base^..$right" --max 50
+        npx --yes "hiarky@$VERSION" view --no-open
+    - uses: actions/upload-artifact@v6
+      if: ${{ inputs.viewer == 'true' && steps.snapshots.outcome == 'success' }}
+      id: upload
+      with:
+        name: hiarky-viewer
+        path: ${{ inputs.working-directory }}/.hiarky/view.html
+        retention-days: 30
+
+    - name: Link the viewer
+      if: ${{ steps.upload.outputs.artifact-url != '' }}
+      shell: bash
+      env:
+        REPORT: ${{ steps.review.outputs.report }}
+        VIEWER: ${{ steps.upload.outputs.artifact-url }}
+      run: |
+        printf '\nBrowse every commit in the [interactive viewer](%s) — a workflow artifact, kept 30 days.\n' "$VIEWER" >> "$REPORT"
+
+    - name: Write the job summary
+      if: ${{ inputs.summary == 'true' }}
+      shell: bash
+      env:
+        REPORT: ${{ steps.review.outputs.report }}
+      run: cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+
+    - name: Post the comment
+      if: ${{ inputs.comment == 'true' && github.event.pull_request.number != '' }}
+      # A fork's token is read-only; the summary and annotations remain
+      continue-on-error: true
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        REPO: ${{ github.repository }}
+        PR: ${{ github.event.pull_request.number }}
+        REPORT: ${{ steps.review.outputs.report }}
+      run: |
+        marker='<!-- hiarky-review -->'
+        comment="$RUNNER_TEMP/hiarky-comment.md"
+        { echo "$marker"; cat "$REPORT"; } > "$comment"
+        existing="$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+          --jq "first(.[] | select(.body | startswith(\"$marker\")) | .id)" | head -n 1)"
+        if [ -n "$existing" ]; then
+          gh api -X PATCH "repos/$REPO/issues/comments/$existing" -F body=@"$comment" > /dev/null
+        else
+          gh api "repos/$REPO/issues/$PR/comments" -F body=@"$comment" > /dev/null
+        fi

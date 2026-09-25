@@ -225,9 +225,35 @@ data behind the graphs is in `--format json` as `graph`.
 
 ### Posting it on pull requests
 
-A workflow can run the review on every pull request and post it as one comment, updated in place
-on each push, and as the run's job summary. `base...head` reviews what the branch did since it
-diverged, so commits that landed on the base branch in the meantime do not count against it.
+The `kosminog/hiarky` action runs the review on every pull request and posts it as one comment,
+updated in place on each push, as the run's job summary, and as annotations on the changed lines
+of the diff:
+
+```yaml
+name: Review
+on:
+  pull_request:
+permissions:
+  contents: read
+  pull-requests: write
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # both ends of the range must be reachable
+      - uses: kosminog/hiarky@v0.2.0
+```
+
+It runs the hiarky release it was tagged with (`version` overrides). Inputs turn each output off
+(`comment`, `summary`, `annotate`) or on (`viewer`, which snapshots every commit of the range and
+uploads the interactive viewer as a workflow artifact linked from the comment), point it at a
+project below the repository root (`working-directory`), or review another range (`range`, which
+on a pull request defaults to what the branch did since it diverged from its base). A pull request
+from a fork gets a read-only token, so the comment step is allowed to fail and the rest remains.
+
+The action is [`action.yml`](action.yml) at the root of this repository; the same steps by hand:
 
 ```yaml
 name: Review
@@ -284,9 +310,8 @@ per change worth a look, so the same findings appear as annotations on the chang
 diff: a warning where no test moved with the change, a notice otherwise. The runner shows ten of
 each per step, so the most important ten go out and the comment has the rest.
 
-This repository runs the same workflow on itself, and additionally snapshots every commit of the
-range and uploads the viewer as an artifact linked from the summary:
-[`.github/workflows/review.yml`](.github/workflows/review.yml).
+This repository reviews its own pull requests from the checkout's build, and runs the published
+action beside it: [`.github/workflows/review.yml`](.github/workflows/review.yml).
 
 ## The viewer
 
