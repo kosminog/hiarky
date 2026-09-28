@@ -39,6 +39,9 @@ inputs:
       Snapshot every commit of the range and upload hiarky's interactive viewer as a workflow
       artifact, linked from the comment and the summary.
     default: 'false'
+  artifact-name:
+    description: Name of the viewer artifact, when `viewer` is on; one run cannot upload two of a name.
+    default: hiarky-viewer
   token:
     description: 'Token used to post the comment. Needs the `pull-requests: write` permission.'
     default: ${{ github.token }}
@@ -140,7 +143,7 @@ runs:
       if: ${{ inputs.viewer == 'true' && steps.snapshots.outcome == 'success' }}
       id: upload
       with:
-        name: hiarky-viewer
+        name: ${{ inputs.artifact-name }}
         path: ${{ inputs.working-directory }}/.hiarky/view.html
         retention-days: 30
 

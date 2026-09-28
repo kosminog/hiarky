@@ -100,6 +100,7 @@ It runs the hiarky release it was tagged with; `version` overrides that.
 | `summary` | `true` | Write the review to the job summary |
 | `annotate` | `true` | Annotate the changed lines of the diff with the changes worth a look |
 | `viewer` | `false` | Snapshot every commit of the range and upload the interactive viewer as an artifact, linked from the comment and the summary |
+| `artifact-name` | `hiarky-viewer` | Name of the viewer artifact, when `viewer` is on |
 | `range` | the pull request's branch since it diverged | Any git range, for other events |
 | `working-directory` | `.` | The project, when it is not at the repository root |
 | `version` | the release the action was tagged with | The hiarky version to run from npm |

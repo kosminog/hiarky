@@ -119,3 +119,4 @@ jobs:
           comment: 'false'
           annotate: 'false'
           viewer: 'true'
+          artifact-name: hiarky-viewer-action
