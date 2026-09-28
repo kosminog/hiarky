@@ -4,7 +4,7 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+## 0.2.0
 
 ### Added
 
@@ -25,10 +25,13 @@ All notable changes to this project are documented here. The format follows
 - Symbols record the `line` they start on, where the extractor knows it (JavaScript, TypeScript,
   Python, Prisma, and the shallow-scanned languages). It is not part of a snapshot's content, so
   shifting code down a line does not make a new snapshot.
-- The analysis cache format changed; existing caches are discarded and rebuilt on the next scan.
 - The GitHub-flavored report draws the render tree above every changed page or component, so a
   React change shows the screens it reaches, and leads a `--per-commit` review with an overview
   table of the commits. The review's `graph` carries the tree as `renderTree`.
+
+### Changed
+
+- The analysis cache format changed; existing caches are discarded and rebuilt on the next scan.
 
 ## 0.1.5
 
