@@ -17,6 +17,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # The review of this repository's pull requests comes from the checkout's
+  # own build, so a change to the report is what the comment shows.
   review:
     runs-on: ubuntu-latest
     steps:
@@ -95,3 +97,26 @@ jobs:
           else
             gh api "repos/$REPO/issues/$PR/comments" -F body=@hiarky-comment.md > /dev/null
           fi
+
+  # The action, run against this repository from the checkout's own build so
+  # its steps are exercised on every pull request. The job above owns the
+  # comment and the annotations; this one takes the viewer.
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - uses: ./
+        with:
+          command: node dist/index.js
+          comment: 'false'
+          annotate: 'false'
+          viewer: 'true'
+          artifact-name: hiarky-viewer-action
