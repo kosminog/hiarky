@@ -103,6 +103,7 @@ It runs the hiarky release it was tagged with; `version` overrides that.
 | `range` | the pull request's branch since it diverged | Any git range, for other events |
 | `working-directory` | `.` | The project, when it is not at the repository root |
 | `version` | the release the action was tagged with | The hiarky version to run from npm |
+| `command` | | A command that runs hiarky in place of the npm release, such as `node dist/index.js` from a checkout of hiarky itself |
 | `token` | `github.token` | Token for the comment; needs `pull-requests: write` |
 
 A pull request from a fork gets a read-only token, so the comment step is allowed to fail and the

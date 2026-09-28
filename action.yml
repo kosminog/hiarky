@@ -17,6 +17,11 @@ inputs:
     description: >-
       The hiarky version to run from npm. Defaults to the version this action was released with.
     default: ''
+  command:
+    description: >-
+      A command that runs hiarky, in place of the npm release: `node dist/index.js` when testing
+      hiarky itself from a checkout.
+    default: ''
   working-directory:
     description: The project directory, for a project that is not at the repository root.
     default: .
@@ -49,14 +54,19 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Pick the hiarky version
-      id: version
+    - name: Pick the hiarky to run
+      id: hiarky
       shell: bash
       env:
         REQUESTED: ${{ inputs.version }}
+        COMMAND: ${{ inputs.command }}
       # The action and the package release together; a checkout of an
       # unreleased commit falls back to the latest published version.
       run: |
+        if [ -n "$COMMAND" ]; then
+          echo "command=$COMMAND" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
         version="$REQUESTED"
         if [ -z "$version" ]; then
           version="$(node -p "require('$GITHUB_ACTION_PATH/package.json').version")"
@@ -65,7 +75,7 @@ runs:
             version=latest
           fi
         fi
-        echo "version=$version" >> "$GITHUB_OUTPUT"
+        echo "command=npx --yes hiarky@$version" >> "$GITHUB_OUTPUT"
 
     - name: Check the range is reachable
       shell: bash
@@ -93,10 +103,10 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       env:
         RANGE: ${{ inputs.range }}
-        VERSION: ${{ steps.version.outputs.version }}
+        HIARKY: ${{ steps.hiarky.outputs.command }}
       run: |
         report="$RUNNER_TEMP/hiarky-review.md"
-        npx --yes "hiarky@$VERSION" review "$RANGE" --format github > "$report"
+        $HIARKY review "$RANGE" --format github > "$report"
         echo "report=$report" >> "$GITHUB_OUTPUT"
 
     - name: Annotate the diff
@@ -105,9 +115,9 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       env:
         RANGE: ${{ inputs.range }}
-        VERSION: ${{ steps.version.outputs.version }}
+        HIARKY: ${{ steps.hiarky.outputs.command }}
       # Workflow commands on stdout become annotations on the changed lines
-      run: npx --yes "hiarky@$VERSION" review "$RANGE" --format actions
+      run: $HIARKY review "$RANGE" --format actions
 
     - name: Build the viewer for the range
       if: ${{ inputs.viewer == 'true' }}
@@ -117,15 +127,15 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       env:
         RANGE: ${{ inputs.range }}
-        VERSION: ${{ steps.version.outputs.version }}
+        HIARKY: ${{ steps.hiarky.outputs.command }}
       # The merge base and every commit after it, so the timeline starts
       # where the branch did
       run: |
         left="${RANGE%%..*}"
         right="${RANGE##*..}"
         merge_base="$(git merge-base "$left" "$right")"
-        npx --yes "hiarky@$VERSION" backfill --range "$merge_base^..$right" --max 50
-        npx --yes "hiarky@$VERSION" view --no-open
+        $HIARKY backfill --range "$merge_base^..$right" --max 50
+        $HIARKY view --no-open
     - uses: actions/upload-artifact@v6
       if: ${{ inputs.viewer == 'true' && steps.snapshots.outcome == 'success' }}
       id: upload
