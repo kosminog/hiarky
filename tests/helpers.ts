@@ -1,7 +1,8 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, spawnSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { inject } from 'vitest';
 import { Edge, SNAPSHOT_VERSION, Snapshot, SymbolInfo } from '../src/types';
 
 /**
@@ -30,9 +31,36 @@ export function cleanup(dir: string): void {
 }
 
 export function git(cwd: string, args: string[], env: NodeJS.ProcessEnv = {}): string {
-  return execFileSync('git', args, { cwd, env: { ...process.env, ...env } })
+  // stderr is captured too: git relays hook output there, and a test's
+  // commits must not write to the terminal
+  return execFileSync('git', args, {
+    cwd,
+    env: { ...process.env, ...env },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
     .toString()
     .trim();
+}
+
+/** The CLI compiled for this run by tests/setup/build-cli.ts. */
+export function builtCli(): string {
+  return inject('cliPath');
+}
+
+export interface CliResult {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+}
+
+/** Run the compiled CLI in `cwd`, as a user would from a shell. */
+export function runCli(cwd: string, args: string[]): CliResult {
+  const result = spawnSync(process.execPath, [builtCli(), ...args], {
+    cwd,
+    encoding: 'utf8',
+    env: { ...process.env, NO_COLOR: '1' },
+  });
+  return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
 /** git init with a local test identity, so tests don't depend on global config. */

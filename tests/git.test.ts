@@ -7,6 +7,7 @@ import { readGitInfo } from '../src/project';
 import { loadSnapshots, snapProject } from '../src/snap';
 import {
   APP_TSX,
+  builtCli,
   BUTTON_TSX,
   cleanup,
   commitAll,
@@ -16,8 +17,6 @@ import {
   snapshotFiles,
   writeFile,
 } from './helpers';
-
-const DIST_CLI = path.resolve('dist/index.js');
 
 describe('readGitInfo', () => {
   it('returns null outside a repo or before the first commit', () => {
@@ -78,13 +77,14 @@ describe('git hooks', () => {
     expect(() => installHook(root)).not.toThrow();
   });
 
-  it.skipIf(!fs.existsSync(DIST_CLI))('fires on a real git commit', () => {
-    // Shim `hiarky` onto PATH so the hook resolves to this checkout's build
+  it('fires on a real git commit', () => {
+    // Shim `hiarky` onto PATH so the hook resolves to this run's build, not
+    // to whatever a global install or a stale dist/ would provide
     const binDir = path.join(root, '.test-bin');
     fs.mkdirSync(binDir, { recursive: true });
     fs.writeFileSync(
       path.join(binDir, 'hiarky'),
-      `#!/bin/sh\nexec node "${DIST_CLI}" "$@"\n`,
+      `#!/bin/sh\nexec "${process.execPath}" "${builtCli()}" "$@"\n`,
       { mode: 0o755 }
     );
     expect(snapshotFiles(root)).toHaveLength(0);
