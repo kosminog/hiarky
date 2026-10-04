@@ -4,6 +4,14 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## Unreleased
+
+### Security
+
+- js-yaml 4.3.2, which closes an advisory about unbounded CPU use when a document's merge keys
+  are empty ([GHSA-2883-xcg3-v3hh](https://github.com/advisories/GHSA-2883-xcg3-v3hh)). hiarky
+  only reads its own snapshots with it, so no action is needed beyond upgrading.
+
 ## 0.2.0
 
 ### Added
