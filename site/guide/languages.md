@@ -43,6 +43,21 @@ and an entry in the snapshot's `errors`.
 | `compose.yaml` | One per service, with its settings |
 | `pyproject.toml`, `Cargo.toml` | One per section, plus one per dependency list |
 
+## Stylesheets
+
+| File | Symbols |
+| --- | --- |
+| `*.css`, `*.scss`, `*.sass`, `*.less` | One per rule, named by its selector, with declarations as members. A color change reads as `-color: red +color: blue` |
+| `$variable`, `@mixin`, `@function` | One each, with the value or the parameters as the signature |
+| `@keyframes`, `@font-face` | One each, with steps or font settings as members |
+| `*.module.css` | The rules above, plus one default-exported symbol listing the classes the module exposes, which `import styles from './x.module.css'` resolves to |
+
+Nested rules flatten the way Sass compiles them (`.card { &:hover {} }` is `.card:hover`), and a
+rule inside `@media` carries the query in its name, so the same rule written either way around keeps
+the same id. Hashes are taken over whitespace-normalized text, so a formatter run is not a change.
+Rules in a global stylesheet count as public surface; rules in a CSS module do not. `@use` and
+`@import` lines are not followed yet, and a `*.min.css` bundle is recorded by hash alone.
+
 ## Tests
 
 Test files are scanned like any other source. Each top-level `describe` (or `suite`/`context`)

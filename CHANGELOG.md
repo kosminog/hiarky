@@ -6,6 +6,16 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Added
+
+- Stylesheets are symbols: every rule in a `.css`, `.scss`, `.sass`, or `.less` file is a `style`
+  symbol named by its selector, with its declarations as members, so a review shows
+  `-color: red +color: blue` rather than "file changed". Nested Sass rules flatten to the selector
+  they compile to, a rule inside `@media` carries the query in its name, and variables, mixins,
+  functions, `@keyframes`, and `@font-face` are symbols of their own. Hashes ignore formatting. A CSS
+  module also gets one default-exported symbol listing its classes, which a component's
+  `import styles from './x.module.css'` resolves to, so the component references its stylesheet.
+
 ### Security
 
 - js-yaml 4.3.2, which closes an advisory about unbounded CPU use when a document's merge keys

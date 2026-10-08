@@ -11,6 +11,10 @@ export type Lang =
   | 'yaml'
   | 'toml'
   | 'env'
+  | 'css'
+  | 'scss'
+  | 'sass'
+  | 'less'
   // Covered by the generic declaration scanner
   | 'go'
   | 'rust'
@@ -43,13 +47,15 @@ export type SymbolKind =
   | 'migration'
   /** A block of project configuration: scripts, dependencies, env keys */
   | 'config'
+  /** A stylesheet rule, variable, mixin, or at-rule such as `@keyframes` */
+  | 'style'
   /** A whole file, when it could not be analyzed in more detail */
   | 'module'
   /** A test suite, with its cases as members */
   | 'test';
 
 /** Kinds that describe declared data or configuration rather than code. */
-export const DECLARATIVE_KINDS: SymbolKind[] = ['model', 'migration', 'config'];
+export const DECLARATIVE_KINDS: SymbolKind[] = ['model', 'migration', 'config', 'style'];
 
 /** How one symbol depends on another. */
 export type EdgeKind = 'renders' | 'calls' | 'extends' | 'references';
