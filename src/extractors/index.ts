@@ -5,6 +5,7 @@ import { analyzeJavascript, JAVASCRIPT_GLOBS, matchesJavascript } from './javasc
 import { analyzePrisma, matchesPrisma, PRISMA_GLOBS } from './prisma';
 import { analyzePython, analyzePythonMany, matchesPython, PYTHON_GLOBS } from './python';
 import { analyzeSql, matchesSql, SQL_GLOBS } from './sql';
+import { analyzeStyles, matchesStyles, STYLE_GLOBS } from './styles';
 
 /**
  * A language (or file-format) plugin. Everything downstream — linking,
@@ -56,6 +57,13 @@ export const pythonExtractor: Extractor = {
   analyzeMany: analyzePythonMany,
 };
 
+export const stylesExtractor: Extractor = {
+  name: 'styles',
+  globs: STYLE_GLOBS,
+  matches: matchesStyles,
+  analyze: analyzeStyles,
+};
+
 export const configExtractor: Extractor = {
   name: 'config',
   globs: CONFIG_GLOBS,
@@ -80,6 +88,7 @@ export const extractors: Extractor[] = [
   pythonExtractor,
   prismaExtractor,
   sqlExtractor,
+  stylesExtractor,
   configExtractor,
   genericExtractor,
 ];

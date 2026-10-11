@@ -249,6 +249,7 @@ function describe(field: DeltaField, symbolKind: SymbolKind): string {
     if (symbolKind === 'component') return 'props changed';
     if (symbolKind === 'model') return 'fields changed';
     if (symbolKind === 'procedure') return 'input changed';
+    if (symbolKind === 'style') return 'declarations changed';
     return 'members changed';
   }
   if (field === 'body') {

@@ -31,6 +31,7 @@ function fieldLabel(field: FieldDelta['field'], symbolKind: SymbolKind): string 
     if (symbolKind === 'procedure') return 'input';
     if (symbolKind === 'migration') return 'statements';
     if (symbolKind === 'test') return 'cases';
+    if (symbolKind === 'style') return 'declarations';
     return 'members';
   }
   return field;
@@ -364,6 +365,7 @@ const KIND_ORDER: SymbolKind[] = [
   'route',
   'procedure',
   'config',
+  'style',
   'component',
   'class',
   'method',

@@ -64,7 +64,7 @@ Every module-scope declaration becomes a **symbol** with a stable id (`<file>#<n
 
 | Field | What it holds |
 | --- | --- |
-| `kind` | `component`, `function`, `class`, `type`, `const`, `route`, `procedure`, `model`, `migration`, `config` |
+| `kind` | `component`, `function`, `class`, `type`, `const`, `route`, `procedure`, `model`, `migration`, `config`, `style` |
 | `export` | `default`, `named`, or `none` |
 | `signature` | normalized parameters and return type, for functions |
 | `members` | component props, interface/enum members, class members, object-literal keys |
@@ -108,6 +108,31 @@ Files that are not code still decide how a system behaves, so they are recorded 
 | `.env.example` | variable **names only**, never values |
 | `compose.yaml` | one per service, with its settings |
 | `pyproject.toml`, `Cargo.toml` | one per section, plus one per dependency list — a dependency reads as `+torch>=2.3.0` |
+| `*.css`, `*.scss`, `*.sass`, `*.less` | one per rule, named by its selector, with declarations as members — a color change reads as `-color: red +color: blue` |
+
+### Stylesheets
+
+Every rule in a stylesheet is a `style` symbol named by its selector, and its declarations are
+its members, so a review shows exactly which property moved:
+
+```
+changed  src/styles/globals.css#.button  [style]
+           declarations: +color: var(--brand) -color: #0a84ff
+```
+
+Nested Sass rules flatten the way Sass compiles them (`.card { &:hover {} }` is `.card:hover`),
+and a rule inside `@media` carries the query in its name (`.button @media (min-width: 600px)`), so
+the same rule written either way around keeps the same id. Variables (`$spacing`), mixins and
+functions (with their parameters as the signature), `@keyframes`, and `@font-face` are symbols of
+their own. The indented Sass syntax and Less are read the same way; `@use` and `@import` lines are
+not followed yet.
+
+Hashes are taken over whitespace-normalized text, so running a formatter does not show as a change
+to every rule. Rules in a global stylesheet count as public surface, since any markup can use them.
+A CSS module (`Button.module.css`) is different: its rules are scoped, and the module itself becomes
+one default-exported symbol listing the classes it exposes. That is what `import styles from
+'./Button.module.css'` resolves to, so the component carries a `references` edge to its stylesheet.
+A `*.min.css` bundle is recorded by hash alone.
 
 ### Tests
 
