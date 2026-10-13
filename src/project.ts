@@ -1,7 +1,41 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execFileSync } from 'child_process';
+import fg from 'fast-glob';
 import { GitInfo } from './types';
+
+/** Directories that hold dependencies, build output or tool state, wherever they sit. */
+const IGNORED_DIRS = new Set([
+  'node_modules',
+  '.git',
+  '.hiarky',
+  'dist',
+  'build',
+  'out',
+  '.next',
+  'coverage',
+  'generated',
+  '.turbo',
+  'vendor',
+]);
+/** Generated files that sit beside source. */
+const IGNORED_SUFFIXES = ['.min.js', '.d.ts'];
+
+/** Never scanned, in or out of a git repository; as globs, for walking a directory. */
+export const IGNORE = [
+  ...[...IGNORED_DIRS].map((dir) => `**/${dir}/**`),
+  ...IGNORED_SUFFIXES.map((suffix) => `**/*${suffix}`),
+];
+
+/** Does a project-relative path fall under IGNORE? */
+function isIgnored(rel: string): boolean {
+  const dirs = rel.split('/');
+  const base = dirs.pop() ?? '';
+  return (
+    dirs.some((dir) => IGNORED_DIRS.has(dir)) ||
+    IGNORED_SUFFIXES.some((suffix) => base.endsWith(suffix))
+  );
+}
 
 /** findProjectRoot, but throws when no project is found (CLI entry points). */
 export function requireProjectRoot(from: string = process.cwd()): string {
@@ -57,6 +91,52 @@ export function listGitFiles(root: string): Set<string> | null {
   } catch {
     return null;
   }
+}
+
+export interface FindFilesOptions {
+  /** Which listed files to keep, by project-relative path */
+  match: (rel: string) => boolean;
+  /** The same files as globs, for walking a directory outside git */
+  globs: string[];
+  /** Outside git, match dotfiles and walk hidden directories too */
+  dot?: boolean;
+}
+
+function isFile(abs: string): boolean {
+  try {
+    return fs.statSync(abs).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Project files, relative to root and sorted, skipping IGNORE.
+ *
+ * In a git repository (`gitFiles` from listGitFiles) they come from git's list,
+ * so nothing git ignores is walked: a checkout can hold gigabytes of ignored
+ * worktrees, caches and virtualenvs. Elsewhere the directory is walked.
+ */
+export function findProjectFiles(
+  root: string,
+  gitFiles: Set<string> | null,
+  opts: FindFilesOptions
+): string[] {
+  if (gitFiles) {
+    // The index can list files that are gone from disk, or a submodule's directory
+    return [...gitFiles]
+      .filter((rel) => opts.match(rel) && !isIgnored(rel) && isFile(path.join(root, rel)))
+      .sort();
+  }
+  const dot = opts.dot ?? false;
+  return fg
+    .sync(opts.globs, {
+      cwd: root,
+      // Without dot nothing in a hidden directory matches, so skip walking its contents
+      ignore: dot ? IGNORE : [...IGNORE, '**/.*/**'],
+      dot,
+    })
+    .sort();
 }
 
 export function readGitInfo(root: string): GitInfo | null {

@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import fg from 'fast-glob';
+import { findProjectFiles, IGNORE, listGitFiles } from './project';
 
 const EXTENSIONS = ['.tsx', '.ts', '.jsx', '.js', '.mjs', '.cjs', '.py'];
 /** Files that stand in for a directory when a specifier points at one. */
@@ -185,7 +186,7 @@ function loadPackages(root: string): WorkspacePackage[] {
   if (globs.length === 0) return [];
   const manifests = fg.sync(
     globs.map((g) => `${g.replace(/\/$/, '')}/package.json`),
-    { cwd: root, absolute: true, ignore: ['**/node_modules/**'] }
+    { cwd: root, absolute: true, ignore: [...IGNORE, '**/.*/**'] }
   );
   const packages: WorkspacePackage[] = [];
   for (const file of manifests) {
@@ -198,28 +199,43 @@ function loadPackages(root: string): WorkspacePackage[] {
 }
 
 /**
- * Discover every path alias and workspace package in a project, once per scan.
- * Without this a monorepo's internal imports ("~/components/ui/button",
- * "@acme/web/thing") all look like third-party packages and the graph falls apart.
+ * Absolute paths of the project files with one of these names, where "*"
+ * stands for any run of characters within the name.
  */
+function filesNamed(root: string, gitFiles: Set<string> | null, names: string[]): string[] {
+  const patterns = names.map(
+    (name) => new RegExp(`^${name.split('*').map(escapeRegExp).join('[^/]*')}$`)
+  );
+  return findProjectFiles(root, gitFiles, {
+    match: (rel) => patterns.some((re) => re.test(path.posix.basename(rel))),
+    globs: names.map((name) => `**/${name}`),
+  }).map((rel) => path.join(root, rel));
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /** Directories that anchor absolute Python imports (`from src.model import X`). */
-function loadPythonRoots(root: string): string[] {
-  const markers = fg.sync(['**/pyproject.toml', '**/setup.py', '**/setup.cfg'], {
-    cwd: root,
-    absolute: true,
-    ignore: ['**/node_modules/**', '**/.venv/**', '**/venv/**'],
-  });
+function loadPythonRoots(root: string, gitFiles: Set<string> | null): string[] {
+  const markers = filesNamed(root, gitFiles, ['pyproject.toml', 'setup.py', 'setup.cfg']);
   const dirs = new Set(markers.map((m) => path.dirname(m)));
   dirs.add(root);
   return [...dirs].sort((a, b) => b.length - a.length);
 }
 
-export function loadResolverContext(root: string): ResolverContext {
-  const configFiles = fg.sync(['**/tsconfig*.json', '**/jsconfig.json'], {
-    cwd: root,
-    absolute: true,
-    ignore: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.next/**'],
-  });
+/**
+ * Discover every path alias and workspace package in a project, once per scan.
+ * Without this a monorepo's internal imports ("~/components/ui/button",
+ * "@acme/web/thing") all look like third-party packages and the graph falls apart.
+ *
+ * `gitFiles` is listGitFiles(root), passed in when the caller already has it.
+ */
+export function loadResolverContext(
+  root: string,
+  gitFiles: Set<string> | null = listGitFiles(root)
+): ResolverContext {
+  const configFiles = filesNamed(root, gitFiles, ['tsconfig*.json', 'jsconfig.json']);
   const tsconfigs: TsConfig[] = [];
   for (const file of configFiles) {
     const cfg = loadTsConfig(file);
@@ -231,7 +247,7 @@ export function loadResolverContext(root: string): ResolverContext {
     root,
     tsconfigs,
     packages: loadPackages(root),
-    pythonRoots: loadPythonRoots(root),
+    pythonRoots: loadPythonRoots(root, gitFiles),
   };
 }
 

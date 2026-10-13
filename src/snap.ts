@@ -1,13 +1,18 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { createHash, randomUUID } from 'crypto';
-import fg from 'fast-glob';
 import * as yaml from 'js-yaml';
 import { AnalysisCache, contentKeys, nullCache, openCache } from './cache';
 import { Extractor, extractorFor, extractorGlobs } from './extractors';
 import { isTestFile } from './extractors/tests';
 import { loadResolverContext } from './modules';
-import { findProjectRoot, listGitFiles, readGitInfo, readProjectName } from './project';
+import {
+  findProjectFiles,
+  findProjectRoot,
+  listGitFiles,
+  readGitInfo,
+  readProjectName,
+} from './project';
 import { linkSymbols } from './resolve';
 import {
   FileAnalysis,
@@ -17,22 +22,6 @@ import {
   SNAPSHOT_VERSION,
   SymbolInfo,
 } from './types';
-
-const IGNORE = [
-  '**/node_modules/**',
-  '**/.git/**',
-  '**/.hiarky/**',
-  '**/dist/**',
-  '**/build/**',
-  '**/out/**',
-  '**/.next/**',
-  '**/coverage/**',
-  '**/generated/**',
-  '**/.turbo/**',
-  '**/vendor/**',
-  '**/*.min.js',
-  '**/*.d.ts',
-];
 
 export function snapshotsDir(root: string): string {
   return path.join(root, '.hiarky', 'snapshots');
@@ -63,16 +52,14 @@ export async function analyzeProject(
   root: string,
   opts: AnalyzeOptions = {}
 ): Promise<ProjectAnalysis> {
-  // dot: true so `.env.example` is visible; `.git` is excluded above
-  const globbed = await fg(extractorGlobs(), {
-    cwd: root,
-    ignore: IGNORE,
-    absolute: false,
-    dot: true,
-  });
   // In a git repository, ignored files are build output by definition
   const gitFiles = listGitFiles(root);
-  const files = (gitFiles ? globbed.filter((f) => gitFiles.has(f)) : globbed).sort();
+  // dot: true so `.env.example` and sources in hidden directories are visible
+  const files = findProjectFiles(root, gitFiles, {
+    match: (f) => extractorFor(f) !== undefined,
+    globs: extractorGlobs(),
+    dot: true,
+  });
 
   const cache = opts.cache ?? nullCache();
   // Fingerprints are only worth computing when something will use them
@@ -122,7 +109,7 @@ export async function analyzeProject(
     if (analysis.symbols.length > 0 || analysis.reexports.length > 0) analyses.push(analysis);
   }
 
-  const { symbols, roots } = linkSymbols(root, analyses, loadResolverContext(root));
+  const { symbols, roots } = linkSymbols(root, analyses, loadResolverContext(root, gitFiles));
   return {
     filesScanned: files.length,
     filesWithSymbols: analyses.filter((a) => a.symbols.length > 0).length,

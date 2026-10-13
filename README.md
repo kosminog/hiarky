@@ -341,9 +341,10 @@ checkout is still recorded as clean.
 
 Inside a git repository, hiarky scans only files git would show (tracked, plus untracked files that
 are not ignored) — so generated clients and build output never reach a snapshot, whatever they are
-called. On top of that: `node_modules`, `dist`, `build`, `out`, `.next`, `coverage`, `generated`,
-`.turbo`, `vendor`, `.hiarky`, minified bundles, and declaration files. Test files are **not**
-ignored — they are part of the review.
+called. It takes that list from git rather than walking the directory, so large ignored directories
+(worktrees, caches, virtualenvs) do not slow it down. On top of that: `node_modules`, `dist`,
+`build`, `out`, `.next`, `coverage`, `generated`, `.turbo`, `vendor`, `.hiarky`, minified bundles,
+and declaration files. Test files are **not** ignored — they are part of the review.
 
 ## Try the demo
 
