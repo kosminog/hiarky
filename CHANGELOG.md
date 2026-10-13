@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- `hiarky snap` no longer walks directories git ignores. The search for `tsconfig.json`,
+  `jsconfig.json`, `pyproject.toml` and `setup.py` files walked the whole tree, ignored directories
+  included, so a checkout holding large ignored directories (dozens of git worktrees, say) could
+  take many minutes to snapshot, and a post-commit hook looked hung. Inside a git repository those
+  files, like the source files hiarky scans, now come from git's own list. Outside one, the search
+  skips hidden directories and the directories a scan always skips.
+
 ### Security
 
 - js-yaml 4.3.2, which closes an advisory about unbounded CPU use when a document's merge keys

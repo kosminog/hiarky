@@ -4,7 +4,8 @@
 
 Inside a git repository, hiarky scans only files git would show: tracked files plus untracked files
 that are not ignored. Generated clients and build output never reach a snapshot, whatever they are
-called.
+called. The list comes from git, not from walking the directory, so large ignored directories
+(worktrees, caches, virtualenvs) do not slow it down.
 
 On top of that, these are always skipped: `node_modules`, `dist`, `build`, `out`, `.next`,
 `coverage`, `generated`, `.turbo`, `vendor`, `.hiarky`, minified bundles and declaration files.
